@@ -1,0 +1,84 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: hotel_db
+          POSTGRES_USER: hotel
+          POSTGRES_PASSWORD: hotel
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hotel"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+      DB_NAME: hotel_db
+      DB_USER: hotel
+      DB_PASSWORD: hotel
+      DB_HOST: localhost
+      DB_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect backend
+        id: detect
+        run: |
+          if [ -f backend/manage.py ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.has == 'true'
+        with:
+          python-version: "3.12"
+      - name: Install
+        if: steps.detect.outputs.has == 'true'
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Django check
+        if: steps.detect.outputs.has == 'true'
+        working-directory: backend
+        run: python manage.py check
+      - name: Migrations are in sync
+        if: steps.detect.outputs.has == 'true'
+        working-directory: backend
+        run: python manage.py makemigrations --check --dry-run
+      - name: Tests
+        if: steps.detect.outputs.has == 'true'
+        working-directory: backend
+        run: python manage.py test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect frontend
+        id: detect
+        run: |
+          if [ -f frontend/package.json ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.has == 'true'
+        with:
+          node-version: "20"
+      - name: Install
+        if: steps.detect.outputs.has == 'true'
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        if: steps.detect.outputs.has == 'true'
+        working-directory: frontend
+        run: npm run lint --if-present
+      - name: Test
+        if: steps.detect.outputs.has == 'true'
+        working-directory: frontend
+        run: npm test --if-present
+      - name: Build
+        if: steps.detect.outputs.has == 'true'
+        working-directory: frontend
+        run: npm run build

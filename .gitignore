@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.sqlite3
+.coverage
+htmlcov/
+.pytest_cache/
+# Django
+backend/logs/
+logs/
+backend/media/
+backend/staticfiles/
+# Node
+node_modules/
+frontend/dist/
+.vite/
+npm-debug.log*
+# Secrets / env
+.env
+.env.*
+!.env.example
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+# Antigravity local artifacts
+.gemini/

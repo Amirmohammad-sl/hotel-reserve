@@ -1,0 +1,11 @@
+### PX-NN · Title
+- Owner: A | B | AB
+- Depends: PX-NN, PX-NN | –
+- Size: S | M | L
+- Priority: must | bonus | optional
+- Status: TODO | DONE        (in-progress is derived from an existing remote branch `*/<ID>-*`)
+- Goal: one sentence.
+- Deliverables:
+  - concrete files / endpoints / screens
+- DoD:
+  - [ ] verifiable checks (commands, behaviour)
