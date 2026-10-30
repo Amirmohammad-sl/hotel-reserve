@@ -5,15 +5,15 @@
 - Depends: –
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Shared repo exists, both operators can push branches, main is protected.
 - Deliverables:
   - `git init`, first commit `chore: import agent kit [P0-01]`, push to a new GitHub repo (private; add professor later per TEAM.md).
   - Invite B as collaborator (write). Fill repo URL + A's row in docs/TEAM.md.
   - Settings → Branches: protect `main` (require PR, 1 approval, dismiss stale approvals, no force push, require status checks `backend` and `frontend` once P0-05 ran once). Settings → General: allow squash merge only, auto-delete head branches.
 - DoD:
-  - [ ] B can push a feature branch; a direct push to `main` is rejected.
-  - [ ] Screenshot of branch-protection settings saved in docs/journal/P0-01.md
+  - [x] B can push a feature branch; a direct push to `main` is rejected.
+  - [x] Screenshot of branch-protection settings saved in docs/journal/P0-01.md
 
 ### P0-02 · Onboard Operator B through the full cycle
 - Owner: B
