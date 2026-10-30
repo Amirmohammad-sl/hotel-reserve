@@ -5,11 +5,11 @@ Fill it in P0-01 (A) and P0-02 (B). Keep the table format (scripts parse it).
 
 | Operator | Name | Git email | GitHub username |
 |---|---|---|---|
-| A | (fill) | (fill) | (fill) |
-| B | (fill) | (fill) | (fill) |
+| A | Amirmohammad Soleimani | amirmohammad.slmni@gmail.com | Amirmohammad-sl |
+| B | (fill) | (fill) | mahdimoradi-tech |
 
 ## Repo
-- URL: (fill)
+- URL: https://github.com/Amirmohammad-sl/hotel-reserve.git
 - Professor GitHub / access: (fill)
 
 ## Deadlines (ask the professor / read the course page, then fill)
