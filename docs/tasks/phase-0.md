@@ -90,4 +90,4 @@
   - [x] Email sent (copy in docs/blockers/). D-001 status updated.
 
 ## Exit checklist (Phase 0)
-- [ ] Both operators have merged at least one PR; repo protected; CI green; backend + frontend start locally for both.
+- [x] Both operators have merged at least one PR; repo protected; CI green; backend + frontend start locally for both.
