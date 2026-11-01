@@ -40,6 +40,9 @@ INSTALLED_APPS = [
     # Local apps
     "apps.core.apps.CoreConfig",
     "apps.accounts.apps.AccountsConfig",
+    "apps.hotels.apps.HotelsConfig",
+    "apps.bookings.apps.BookingsConfig",
+    "apps.reviews.apps.ReviewsConfig",
 ]
 
 MIDDLEWARE = [
