@@ -5,13 +5,13 @@
 - Depends: P0-03
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: All apps exist and are registered.
 - Deliverables:
   - Apps `hotels`, `bookings`, `reviews` in `backend/apps/` (core/accounts exist). Registered in `INSTALLED_APPS`; each with urls.py stub included under `/api/`.
   - docs/ARCHITECTURE.md app table finalised.
 - DoD:
-  - [ ] `manage.py check` OK; each app has `apps.py` with `name = "apps.<name>"`.
+  - [x] `manage.py check` OK; each app has `apps.py` with `name = "apps.<name>"`.
 
 ### P1-02 · Process diagrams (overall + per app)
 - Owner: B
