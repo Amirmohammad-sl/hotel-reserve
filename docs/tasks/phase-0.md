@@ -34,7 +34,7 @@
 - Depends: P0-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Runnable Django project on PostgreSQL, custom user model in place BEFORE the first migrate.
 - Deliverables:
   - `backend/` with venv instructions, `requirements.txt` (Django 5.x, psycopg[binary], django-environ, coverage), project `config/`, settings from env, `apps/` package.
