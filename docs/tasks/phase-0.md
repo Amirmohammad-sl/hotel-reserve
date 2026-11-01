@@ -68,13 +68,13 @@
 - Depends: P0-03, P0-04
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: CI runs on PRs and blocks merging when red.
 - Deliverables:
   - Confirm `.github/workflows/ci.yml` passes on a PR; fix paths/env if needed.
   - Add `backend` and `frontend` as required checks in branch protection.
 - DoD:
-  - [ ] A PR shows both checks green; a deliberately failing test PR (closed afterwards) shows red and blocks merge.
+  - [x] A PR shows both checks green; a deliberately failing test PR (closed afterwards) shows red and blocks merge.
 
 ### P0-06 · Professor alignment e-mail + deadlines
 - Owner: B
