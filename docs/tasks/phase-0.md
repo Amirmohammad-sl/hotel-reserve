@@ -20,14 +20,14 @@
 - Depends: P0-01
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: B clones, runs `/bootstrap`, and completes ONE tiny PR through the entire review loop (proves the process).
 - Deliverables:
   - B fills own row in docs/TEAM.md via PR (this PR is the dry run: `/task-start` → `/commit` → `/verify` → `/task-pr` → A runs `/review-pr` → `/merge-pr`).
   - docs/journal/P0-02.md.
 - DoD:
-  - [ ] PR merged with B as author and A as approver; A's `git config user.email` also present in TEAM.md.
-  - [ ] Both can run `python scripts/board.py --me` and see their own tasks.
+  - [x] PR merged with B as author and A as approver; A's `git config user.email` also present in TEAM.md.
+  - [x] Both can run `python scripts/board.py --me` and see their own tasks.
 
 ### P0-03 · Django scaffold + PostgreSQL + custom User skeleton
 - Owner: A
