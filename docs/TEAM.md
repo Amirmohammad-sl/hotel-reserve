@@ -6,7 +6,7 @@ Fill it in P0-01 (A) and P0-02 (B). Keep the table format (scripts parse it).
 | Operator | Name | Git email | GitHub username |
 |---|---|---|---|
 | A | Amirmohammad Soleimani | amirmohammad.slmni@gmail.com | Amirmohammad-sl |
-| B | (fill) | (fill) | mahdimoradi-tech |
+| B | Mahdi Moradi | mahdimoradi.tech@gmail.com | mahdimoradi-tech |
 
 ## Repo
 - URL: https://github.com/Amirmohammad-sl/hotel-reserve.git
