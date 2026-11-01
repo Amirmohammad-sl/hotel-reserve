@@ -8,14 +8,19 @@ Browser (React SPA, Tailwind) --fetch /api/*--> Django (views + Forms + managers
 - Dev: `npm run dev` (5173) proxies `/api` to Django (8000). Prod-like: `npm run build` → Django serves `index.html` + assets.
 - Auth: Django session cookie (HttpOnly) + CSRF cookie `csrftoken` echoed in `X-CSRFToken` header.
 
-## Django apps (filled in P1-01, refined later)
-| App | Responsibility | Key models |
-|---|---|---|
-| core | JSON helpers, decorators, middleware (request logging), shared utils, SPA host view | – |
-| accounts | users, roles, auth views, email verification | User |
-| hotels | hotels, amenities, room types; manager CRUD; public search/detail | Hotel, Amenity, RoomType |
-| bookings | booking flow, availability, discounts, manager booking views | Booking, DiscountCode |
-| reviews | ratings & comments (bonus) | Review |
+## Django apps (finalised in P1-01, refined later)
+| App | Package | Owner | Responsibility & Boundaries | Key models | Mounted URLs |
+|---|---|---|---|---|---|
+| `core` | `apps.core` | A | Standardized JSON helpers (`json_ok`, `json_error`, `parse_json`), shared decorators, logging middleware, error handling, SPA host view. | – | `/api/health/` |
+| `accounts` | `apps.accounts` | A | User identity, custom `User` model, role enforcement (Guest vs Manager), session-based authentication forms/views, email verification token logic. | `User` | `/api/auth/*` |
+| `hotels` | `apps.hotels` | A | Hotel catalog, amenity tags, room types definitions; hotel manager CRUD operations; public search & catalog discovery endpoints. | `Hotel`, `Amenity`, `RoomType` | `/api/hotels/*`, `/api/cities/`, `/api/rooms/*`, `/api/manager/hotels/*`, `/api/amenities/` |
+| `bookings` | `apps.bookings` | B | Reservation workflows, date availability calculation, discount codes validation & application, guest booking management, manager booking overviews. | `Booking`, `DiscountCode` | `/api/bookings/*`, `/api/discounts/*`, `/api/manager/hotels/{id}/bookings/`, `/api/manager/hotels/{id}/availability/` |
+| `reviews` | `apps.reviews` | B | Hotel ratings, feedback text, user-hotel uniqueness constraints for reviews (bonus scope). | `Review` | `/api/hotels/{id}/reviews/` |
+
+### App Dependency & Boundary Rules
+1. **No Circular Imports**: `core` depends on nothing. `accounts` depends only on `core`. `hotels` depends on `core` and `accounts`. `bookings` depends on `core`, `accounts`, and `hotels` (referencing `RoomType`). `reviews` depends on `hotels` and `accounts`.
+2. **Data Integrity**: Cross-app mutations (e.g., creating a booking while validating room availability) occur via manager methods within atomic transactions (`transaction.atomic`).
+3. **Response Envelope**: All JSON endpoints across apps must conform to standard envelope formats (`{"data": ...}` on success, `{"message": "...", "errors": {...}}` on failure) via `apps.core.http`.
 
 ## Request lifecycle example (guest books a room)
 1. React `BookingForm` → `POST /api/bookings/` with JSON + CSRF header.
