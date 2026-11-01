@@ -18,14 +18,14 @@
 - Depends: P0-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required diagrams ready for the report.
 - Deliverables:
   - docs/PROCESS_DIAGRAMS.md: overall flow, per-app flows (accounts, hotels, bookings, reviews), sequence diagram for "guest books a room", manager "see booked/free rooms".
   - Short Persian explanation under each diagram (what happens, who triggers it).
   - Exported PNG/SVG in docs/report/diagrams/ (use mermaid-cli or the Mermaid live editor).
 - DoD:
-  - [ ] Diagrams render on GitHub; each requirement bullet of the hotel project appears in at least one diagram.
+  - [x] Diagrams render on GitHub; each requirement bullet of the hotel project appears in at least one diagram.
   - [ ] A reviews and confirms flows match what he/she will build.
 
 ### P1-03 · User model fields and manager skeleton
