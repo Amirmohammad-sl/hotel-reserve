@@ -13,6 +13,14 @@ States: DONE (Status: DONE in file) | WIP (a git branch containing the ID exists
 """
 import argparse, glob, os, re, subprocess, sys
 
+# Ensure UTF-8 output on Windows terminals where default charmap might fail on unicode icons
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 TASK_DIR = os.path.join(ROOT, "docs", "tasks")
 
