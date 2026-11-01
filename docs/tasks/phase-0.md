@@ -51,7 +51,7 @@
 - Depends: P0-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: WIP
 - Goal: Frontend shell that talks to the backend.
 - Deliverables:
   - `frontend/` Vite React (JS), Tailwind per official guide, React Router, RTL + Vazirmatn (see DECISIONS D-005), ESLint.
@@ -59,9 +59,9 @@
   - `src/api/client.js` (CSRF + credentials + error normalisation). Vite proxy `/api` → `http://localhost:8000`.
   - Home page shows backend health badge from `/api/health/`.
 - DoD:
-  - [ ] `npm run dev` shows the shell; badge is green when Django runs.
-  - [ ] `npm run lint` and `npm run build` pass.
-  - [ ] README section "Frontend quick start".
+  - [x] `npm run dev` shows the shell; badge is green when Django runs.
+  - [x] `npm run lint` and `npm run build` pass.
+  - [x] README section "Frontend quick start".
 
 ### P0-05 · Verify CI and require status checks
 - Owner: A

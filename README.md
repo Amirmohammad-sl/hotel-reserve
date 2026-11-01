@@ -37,5 +37,22 @@ Django + PostgreSQL backend, React + Vite + Tailwind frontend. Built by two oper
    python manage.py runserver
    # Health check: curl http://localhost:8000/api/health/
    ```
-## Frontend quick start  (filled in P0-04)
+## Frontend quick start
+
+1. **Prerequisites**: Node.js 20+ and npm.
+2. **Install dependencies**:
+   ```bash
+   cd frontend
+   npm install  # or npm ci
+   ```
+3. **Run development server**:
+   ```bash
+   npm run dev
+   # Server starts at http://localhost:5173 (proxies /api -> http://localhost:8000)
+   ```
+4. **Lint and build verification**:
+   ```bash
+   npm run lint
+   npm run build
+   ```
 ## Demo accounts / seed data (filled in P2-10)
