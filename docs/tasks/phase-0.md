@@ -42,9 +42,9 @@
   - `GET /api/health/` → `{"data": {"status": "ok"}}`; `apps/core/http.py` with `json_ok/json_error/parse_json` (minimal).
   - `backend/.env` from `.env.example` (not committed). DB `hotel_db` created (docker compose or local Postgres).
 - DoD:
-  - [ ] `python manage.py check` OK · `python manage.py migrate` OK on PostgreSQL · `python manage.py test` runs.
-  - [ ] `curl localhost:8000/api/health/` returns the JSON above.
-  - [ ] README section "Backend quick start" added to root README.md.
+  - [x] `python manage.py check` OK · `python manage.py migrate` OK on PostgreSQL · `python manage.py test` runs.
+  - [x] `curl localhost:8000/api/health/` returns the JSON above.
+  - [x] README section "Backend quick start" added to root README.md.
 
 ### P0-04 · React + Vite + Tailwind scaffold
 - Owner: B
