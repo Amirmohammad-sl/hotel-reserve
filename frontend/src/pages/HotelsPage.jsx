@@ -1,0 +1,30 @@
+import { Link } from 'react-router-dom'
+
+export default function HotelsPage() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">لیست هتل‌ها</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            مشاهده، جستجو و فیلتر هتل‌ها بر اساس مقصد و تاریخ
+          </p>
+        </div>
+        <Link
+          to="/"
+          className="text-sm text-blue-600 hover:text-blue-800"
+        >
+          بازگشت به خانه
+        </Link>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
+        <div className="text-4xl mb-3">🏨</div>
+        <h2 className="text-lg font-semibold text-gray-800">بخش جستجو و نمایش هتل‌ها</h2>
+        <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
+          این بخش در فاز ۲ به همراه اندپوینت‌های جستجو، فیلتر شهرها و مشاهده جزئیات هتل فعال خواهد شد.
+        </p>
+      </div>
+    </div>
+  )
+}
