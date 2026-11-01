@@ -8,17 +8,18 @@ Fill it in P0-01 (A) and P0-02 (B). Keep the table format (scripts parse it).
 | A | Amirmohammad Soleimani | amirmohammad.slmni@gmail.com | Amirmohammad-sl |
 | B | Mahdi Moradi | mahdimoradi.tech@gmail.com | mahdimoradi-tech |
 
-## Repo
+## Repo & Course Contact
 - URL: https://github.com/Amirmohammad-sl/hotel-reserve.git
-- Professor GitHub / access: (fill)
+- Professor / TA Email: nedasoltanih@gmail.com
+- Professor GitHub / access: Awaiting reply to P0-06 alignment email
 
 ## Deadlines (ask the professor / read the course page, then fill)
 | Phase | Deadline | Repo link email due (Phase 1 only: 1 day before) | Delivered? |
 |---|---|---|---|
-| 1 | (fill) | (fill) | |
-| 2 | (fill) | – | |
-| 3 | (fill) | – | |
-| 4 + report | (fill) | – | |
+| 1 | TBD (Email sent) | 1 day before Phase 1 | |
+| 2 | TBD (Email sent) | – | |
+| 3 | TBD (Email sent) | – | |
+| 4 + report | TBD (Email sent) | – | |
 
 ## Working agreement
 - Daily: `/sync` at start, `/end-session` at end.

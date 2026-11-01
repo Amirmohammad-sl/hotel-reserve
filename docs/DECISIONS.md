@@ -1,10 +1,12 @@
 # DECISIONS (ADR log)
 Add new ones with `/decision`. Status: PROPOSED | ACCEPTED | SUPERSEDED.
 
-## D-001 — React SPA + Django JSON views (hybrid) — PROPOSED (waiting for professor: P0-06)
+## D-001 — React SPA + Django JSON views (hybrid) — PROPOSED (alignment email sent on 2026-11-01: P0-06)
 - Context: course asks for Django views/urls/templates/forms; we want React + Tailwind.
 - Decision: Django owns routing/validation/auth (views, urls, Forms, sessions, managers). React is the UI.
   Django templates: SPA host page + all emails. Django admin for inspection.
+- Status update (P0-06): Alignment email sent on 2026-11-01 to `nedasoltanih@gmail.com` (recorded in `docs/blockers/professor_alignment_email.md`).
+  If no objection is raised by 2026-11-08 (7 days), proceed as accepted.
 - Consequences: we must explain in the report how each Django concept is used. If the professor insists on
   server-rendered pages, **Plan B**: render the main pages with Django templates (+ Tailwind CDN/build) and keep React only for
   interactive widgets (search form, booking quote, calendar). Backend models/managers/forms remain unchanged.

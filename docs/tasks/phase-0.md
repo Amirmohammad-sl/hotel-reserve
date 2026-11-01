@@ -81,13 +81,13 @@
 - Depends: P0-01
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Confirm the hybrid architecture (D-001) and get phase deadlines; schedule the "repo link e-mail" (one day before Phase 1).
 - Deliverables:
   - Send docs/PROFESSOR_EMAIL.md (edited). Record answer (or "no reply by <date> → proceed") in DECISIONS D-001 and deadlines in TEAM.md.
   - Calendar reminder for the repo-link email.
 - DoD:
-  - [ ] Email sent (copy in docs/blockers/). D-001 status updated.
+  - [x] Email sent (copy in docs/blockers/). D-001 status updated.
 
 ## Exit checklist (Phase 0)
 - [ ] Both operators have merged at least one PR; repo protected; CI green; backend + frontend start locally for both.
