@@ -51,7 +51,7 @@
 - Depends: P0-01
 - Size: M
 - Priority: must
-- Status: WIP
+- Status: DONE
 - Goal: Frontend shell that talks to the backend.
 - Deliverables:
   - `frontend/` Vite React (JS), Tailwind per official guide, React Router, RTL + Vazirmatn (see DECISIONS D-005), ESLint.
