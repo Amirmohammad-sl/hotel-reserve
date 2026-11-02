@@ -70,7 +70,7 @@
 - Depends: P1-04
 - Size: S
 - Priority: bonus
-- Status: TODO
+- Status: WIP
 - Goal: `reviews.Review` exists so later bonus doesn't change the schema.
 - Deliverables:
   - Model + unique (hotel, user) + rating validators + migration.
