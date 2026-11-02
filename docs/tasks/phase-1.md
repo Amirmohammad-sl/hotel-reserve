@@ -107,12 +107,12 @@
 - Depends: P1-07
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required DB backup in the repo.
 - Deliverables:
   - Run `scripts/backup_db.sh phase1` → `db_backup/hotel_db_phase1.sql`; verify restore into an empty DB with `scripts/restore_db.sh`.
 - DoD:
-  - [ ] Restore test succeeded (output pasted in journal).
+  - [x] Restore test succeeded (output pasted in journal).
 
 ### P1-10 · PHASE 1 GATE (joint)
 - Owner: AB
