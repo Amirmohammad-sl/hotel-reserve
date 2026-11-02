@@ -94,7 +94,7 @@
 - Depends: P1-06, P1-07
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Documentation exactly equals the code (needed for report section 3).
 - Deliverables:
   - DATA_MODEL.md updated from real models (fields, relations, on_delete reasons); ER diagram exported.
