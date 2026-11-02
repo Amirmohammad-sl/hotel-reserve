@@ -44,7 +44,8 @@ discount_amount · total_price · status (`confirmed` / `cancelled`) · created_
 Constraints: `check_out > check_in`. Indexes: (room_type, check_in, check_out), (guest, status).
 
 ## reviews.Review (bonus)
-hotel FK · user FK · rating 1–5 · comment · created_at. Unique (hotel, user).
+hotel FK Hotel (CASCADE, related `reviews`) · user FK User (CASCADE, related `reviews`) · rating (PositiveSmallInteger, 1–5, CheckConstraint + Min/MaxValueValidator) · comment (TextField, blank) · created_at · updated_at.
+Constraints: unique (hotel, user), check rating 1–5 (`review_rating_1_to_5`). Ordering: `[-created_at, -id]`.
 
 ## Business rules
 - Capacity: `guests_count <= room_type.capacity * rooms_count`.
