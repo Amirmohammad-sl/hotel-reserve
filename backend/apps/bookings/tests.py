@@ -1,10 +1,13 @@
 import datetime
+from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 
+from apps.bookings.admin import BookingAdmin, BookingAdminForm, DiscountCodeAdmin
 from apps.bookings.models import Booking, DiscountCode
 from apps.hotels.models import Hotel, RoomType
 
@@ -274,3 +277,82 @@ class BookingModelTests(TestCase):
         discount.delete()
         booking.refresh_from_db()
         self.assertIsNone(booking.discount_code)
+
+
+class BookingAdminTests(TestCase):
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            username="admin_booking",
+            email="admin_booking@example.com",
+            password="adminpassword123",
+        )
+        self.manager = User.objects.create_user(
+            username="mgr_booking",
+            email="mgr_booking@example.com",
+            password="password123",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Test Hotel Admin",
+            city="Shiraz",
+            address="Some street",
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Single Room",
+            capacity=1,
+            price_per_night=1_000_000,
+            quantity=3,
+        )
+        self.client.login(username="admin_booking", password="adminpassword123")
+
+    def test_admin_registration_and_configuration(self):
+        self.assertIn(DiscountCode, site._registry)
+        self.assertIn(Booking, site._registry)
+
+        discount_admin = site._registry[DiscountCode]
+        self.assertIsInstance(discount_admin, DiscountCodeAdmin)
+        self.assertIn("code", discount_admin.list_display)
+        self.assertIn("is_active", discount_admin.list_filter)
+        self.assertIn("code", discount_admin.search_fields)
+        self.assertIn("hotel", discount_admin.autocomplete_fields)
+
+        booking_admin = site._registry[Booking]
+        self.assertIsInstance(booking_admin, BookingAdmin)
+        self.assertIn("status", booking_admin.list_display)
+        self.assertIn("status", booking_admin.list_filter)
+        self.assertIn("id", booking_admin.search_fields)
+        self.assertIn("guest", booking_admin.autocomplete_fields)
+        self.assertIn("room_type", booking_admin.autocomplete_fields)
+        self.assertEqual(booking_admin.date_hierarchy, "check_in")
+
+    def test_booking_admin_form_auto_nights(self):
+        form_data = {
+            "guest": self.superuser.pk,
+            "room_type": self.room_type.pk,
+            "check_in": "2026-09-01",
+            "check_out": "2026-09-05",
+            "rooms_count": 1,
+            "guests_count": 1,
+            "nights": "",  # omitted to test auto calculation
+            "price_per_night_snapshot": 1_000_000,
+            "subtotal": 4_000_000,
+            "discount_amount": 0,
+            "total_price": 4_000_000,
+            "status": Booking.Status.CONFIRMED,
+        }
+        form = BookingAdminForm(data=form_data)
+        self.assertTrue(form.is_valid(), f"Form errors: {form.errors}")
+        booking = form.save()
+        self.assertEqual(booking.nights, 4)
+
+    def test_admin_changelist_views_render_successfully(self):
+        for model_name in ["discountcode", "booking"]:
+            url = reverse(f"admin:bookings_{model_name}_changelist")
+            response = self.client.get(url)
+            self.assertEqual(
+                response.status_code,
+                200,
+                f"Changelist for bookings.{model_name} returned status {response.status_code}",
+            )

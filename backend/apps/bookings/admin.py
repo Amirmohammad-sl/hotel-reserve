@@ -6,6 +6,11 @@ from .models import Booking, DiscountCode
 class BookingAdminForm(forms.ModelForm):
     """Admin form for Booking that auto-calculates nights if omitted."""
 
+    nights = forms.IntegerField(
+        required=False,
+        help_text="Leave blank to calculate automatically from check-in and check-out.",
+    )
+
     class Meta:
         model = Booking
         fields = "__all__"
@@ -16,7 +21,8 @@ class BookingAdminForm(forms.ModelForm):
         check_out = cleaned_data.get("check_out")
         nights = cleaned_data.get("nights")
         if check_in and check_out and check_out > check_in and not nights:
-            cleaned_data["nights"] = (check_out - check_in).days
+            nights = (check_out - check_in).days
+            cleaned_data["nights"] = nights
         return cleaned_data
 
 
