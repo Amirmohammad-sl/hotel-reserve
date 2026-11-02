@@ -57,13 +57,13 @@
 - Depends: P1-04
 - Size: M
 - Priority: must
-- Status: WIP
+- Status: DONE
 - Goal: Booking-side models with DB-level invariants.
 - Deliverables:
   - Models per DATA_MODEL.md with `CheckConstraint(check_out > check_in)`, percent 1–100, indexes (room_type, check_in, check_out).
   - Model-level helper `Booking.calculate_nights()` (pure function, no query).
 - DoD:
-  - [ ] Constraint violations raise IntegrityError (shown in shell); migration applies.
+  - [x] Constraint violations raise IntegrityError (shown in shell); migration applies.
 
 ### P1-06 · Review model (bonus-ready)
 - Owner: B
