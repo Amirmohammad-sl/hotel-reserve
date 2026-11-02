@@ -1,6 +1,7 @@
 from django.contrib.admin.sites import site
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
 
 from .admin import CustomUserAdmin
 from .models import User
@@ -68,3 +69,14 @@ class UserAdminTests(TestCase):
         self.assertIsInstance(admin_instance, CustomUserAdmin)
         self.assertIn("role", admin_instance.list_display)
         self.assertIn("email_verified", admin_instance.list_filter)
+
+    def test_user_admin_changelist_view_renders_successfully(self):
+        User.objects.create_superuser(
+            username="admin_user_test",
+            email="admin_user_test@example.com",
+            password="adminpassword123",
+        )
+        self.client.login(username="admin_user_test", password="adminpassword123")
+        url = reverse("admin:accounts_user_changelist")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)

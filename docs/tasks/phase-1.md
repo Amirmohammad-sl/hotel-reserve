@@ -82,12 +82,12 @@
 - Depends: P1-05
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Admin usable for inspecting/entering data (also helps the demo).
 - Deliverables:
   - ModelAdmin with list_display, search_fields, list_filter for every model; inlines for RoomType in Hotel.
 - DoD:
-  - [ ] Superuser created; all models visible and editable.
+  - [x] Superuser created; all models visible and editable.
 
 ### P1-08 · Finalise DATA_MODEL.md and ER diagram
 - Owner: B

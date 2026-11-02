@@ -4,14 +4,16 @@ from .models import Amenity, Hotel, RoomType
 
 class RoomTypeInline(admin.TabularInline):
     model = RoomType
-    extra = 1
+    extra = 0
     fields = ("title", "capacity", "price_per_night", "quantity")
+    show_change_link = True
 
 
 @admin.register(Amenity)
 class AmenityAdmin(admin.ModelAdmin):
     list_display = ("name", "description", "created_at")
-    search_fields = ("name",)
+    list_filter = ("created_at",)
+    search_fields = ("name", "description")
 
 
 @admin.register(Hotel)
@@ -24,8 +26,9 @@ class HotelAdmin(admin.ModelAdmin):
         "is_active",
         "created_at",
     )
-    list_filter = ("is_active", "city", "star_rating")
-    search_fields = ("name", "city", "owner__username", "owner__email")
+    list_filter = ("is_active", "city", "star_rating", "created_at")
+    search_fields = ("name", "city", "address", "owner__username", "owner__email")
+    autocomplete_fields = ("owner",)
     inlines = [RoomTypeInline]
 
 
@@ -39,6 +42,7 @@ class RoomTypeAdmin(admin.ModelAdmin):
         "quantity",
         "created_at",
     )
-    list_filter = ("hotel", "capacity")
-    search_fields = ("title", "hotel__name")
+    list_filter = ("capacity", "created_at", "hotel")
+    search_fields = ("title", "hotel__name", "hotel__city")
     filter_horizontal = ("amenities",)
+    autocomplete_fields = ("hotel",)

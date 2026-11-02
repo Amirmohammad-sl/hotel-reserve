@@ -3,8 +3,9 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
 
-from .admin import AmenityAdmin, HotelAdmin, RoomTypeAdmin
+from .admin import AmenityAdmin, HotelAdmin, RoomTypeAdmin, RoomTypeInline
 from .models import Amenity, Hotel, RoomType
 
 User = get_user_model()
@@ -114,10 +115,47 @@ class HotelModelsTestCase(TestCase):
 
 
 class HotelAdminTestCase(TestCase):
-    def test_admin_registration(self):
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            username="admin_hotel",
+            email="admin_hotel@example.com",
+            password="adminpassword123",
+        )
+        self.client.login(username="admin_hotel", password="adminpassword123")
+
+    def test_admin_registration_and_configuration(self):
         self.assertIn(Amenity, site._registry)
         self.assertIn(Hotel, site._registry)
         self.assertIn(RoomType, site._registry)
-        self.assertIsInstance(site._registry[Amenity], AmenityAdmin)
-        self.assertIsInstance(site._registry[Hotel], HotelAdmin)
-        self.assertIsInstance(site._registry[RoomType], RoomTypeAdmin)
+
+        amenity_admin = site._registry[Amenity]
+        self.assertIsInstance(amenity_admin, AmenityAdmin)
+        self.assertIn("name", amenity_admin.list_display)
+        self.assertIn("created_at", amenity_admin.list_filter)
+        self.assertIn("name", amenity_admin.search_fields)
+
+        hotel_admin = site._registry[Hotel]
+        self.assertIsInstance(hotel_admin, HotelAdmin)
+        self.assertIn("name", hotel_admin.list_display)
+        self.assertIn("city", hotel_admin.list_filter)
+        self.assertIn("name", hotel_admin.search_fields)
+        self.assertEqual(hotel_admin.inlines, [RoomTypeInline])
+        self.assertIn("owner", hotel_admin.autocomplete_fields)
+
+        room_type_admin = site._registry[RoomType]
+        self.assertIsInstance(room_type_admin, RoomTypeAdmin)
+        self.assertIn("title", room_type_admin.list_display)
+        self.assertIn("capacity", room_type_admin.list_filter)
+        self.assertIn("title", room_type_admin.search_fields)
+        self.assertIn("amenities", room_type_admin.filter_horizontal)
+        self.assertIn("hotel", room_type_admin.autocomplete_fields)
+
+    def test_admin_changelist_views_render_successfully(self):
+        for model_name in ["amenity", "hotel", "roomtype"]:
+            url = reverse(f"admin:hotels_{model_name}_changelist")
+            response = self.client.get(url)
+            self.assertEqual(
+                response.status_code,
+                200,
+                f"Changelist for hotels.{model_name} returned status {response.status_code}",
+            )
