@@ -45,12 +45,12 @@
 - Depends: P1-03
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Hotel-side models with constraints and indexes.
 - Deliverables:
   - Models per docs/DATA_MODEL.md (+ migration). `__str__`, ordering, `related_name`, unique (hotel, title), index on `Hotel.city`.
 - DoD:
-  - [ ] Migration applies on PostgreSQL; shell session creating hotel + room types works (paste in journal).
+  - [x] Migration applies on PostgreSQL; shell session creating hotel + room types works (paste in journal).
 
 ### P1-05 · Booking and DiscountCode models
 - Owner: B
