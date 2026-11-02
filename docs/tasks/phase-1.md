@@ -70,12 +70,12 @@
 - Depends: P1-04
 - Size: S
 - Priority: bonus
-- Status: TODO
+- Status: DONE
 - Goal: `reviews.Review` exists so later bonus doesn't change the schema.
 - Deliverables:
   - Model + unique (hotel, user) + rating validators + migration.
 - DoD:
-  - [ ] Applies cleanly; documented in DATA_MODEL.md.
+  - [x] Applies cleanly; documented in DATA_MODEL.md.
 
 ### P1-07 · Django admin for all models
 - Owner: A
