@@ -82,7 +82,7 @@
 - Depends: P1-05
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: WIP
 - Goal: Admin usable for inspecting/entering data (also helps the demo).
 - Deliverables:
   - ModelAdmin with list_display, search_fields, list_filter for every model; inlines for RoomType in Hotel.
