@@ -119,12 +119,12 @@
 - Depends: P1-02, P1-08, P1-09
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Deliver Phase 1.
 - Deliverables:
   - `/phase-close 1`: clean-clone test, tag `phase-1`, demo script, repo link e-mail sent ONE DAY BEFORE the deadline (calendar!).
 - DoD:
-  - [ ] Both can explain every model, relation, and diagram without looking.
+  - [x] Both can explain every model, relation, and diagram without looking.
 
 ## Exit checklist (Phase 1)
-- [ ] Apps defined · diagrams done · models + migrations + admin · DB backup committed · tag `phase-1` · link e-mailed.
+- [x] Apps defined · diagrams done · models + migrations + admin · DB backup committed · tag `phase-1` · link e-mailed.
