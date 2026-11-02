@@ -33,12 +33,12 @@
 - Depends: P1-01
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Final `accounts.User` per docs/DATA_MODEL.md.
 - Deliverables:
   - Fields `role`, `phone`, `email` (unique, required), `email_verified`; role choices constants; migration.
 - DoD:
-  - [ ] `makemigrations --check` clean; migration applies; admin can create manager & guest users (admin registered in P1-07).
+  - [x] `makemigrations --check` clean; migration applies; admin can create manager & guest users (admin registered in P1-07).
 
 ### P1-04 · Hotel, Amenity, RoomType models
 - Owner: A
