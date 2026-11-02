@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
             options={
                 'verbose_name': 'review',
                 'verbose_name_plural': 'reviews',
-                'ordering': ['-created_at'],
+                'ordering': ['-created_at', '-id'],
                 'constraints': [models.UniqueConstraint(fields=('hotel', 'user'), name='unique_hotel_user_review'), models.CheckConstraint(condition=models.Q(('rating__gte', 1), ('rating__lte', 5)), name='review_rating_1_to_5')],
             },
         ),

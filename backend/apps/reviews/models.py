@@ -31,7 +31,7 @@ class Review(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-id"]
         verbose_name = "review"
         verbose_name_plural = "reviews"
         constraints = [
