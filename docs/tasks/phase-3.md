@@ -2,7 +2,7 @@
 
 ### P3-01 · Managers: UserManager, HotelQuerySet
 - Owner: A
-- Depends: P2-12
+- Depends: P1-10
 - Size: M
 - Priority: must
 - Status: TODO
@@ -16,7 +16,7 @@
 
 ### P3-02 · Managers: BookingQuerySet, DiscountCodeManager, room availability
 - Owner: B
-- Depends: P2-12
+- Depends: P1-10
 - Size: L
 - Priority: must
 - Status: TODO
@@ -30,7 +30,7 @@
 
 ### P3-03 · Refactor manager-side views to use managers
 - Owner: A
-- Depends: P3-01, P3-02
+- Depends: P3-01, P3-02, P2-03, P2-04
 - Size: M
 - Priority: must
 - Status: TODO
@@ -42,7 +42,7 @@
 
 ### P3-04 · Refactor guest-side views to use managers
 - Owner: B
-- Depends: P3-01, P3-02
+- Depends: P3-01, P3-02, P2-05, P2-06
 - Size: M
 - Priority: must
 - Status: TODO
@@ -66,7 +66,7 @@
 
 ### P3-06 · Session management
 - Owner: A
-- Depends: P2-12
+- Depends: P2-02
 - Size: M
 - Priority: must
 - Status: TODO
@@ -79,7 +79,7 @@
 
 ### P3-07 · Cookies: last search & recently viewed hotels
 - Owner: B
-- Depends: P2-12
+- Depends: P2-05, P2-08
 - Size: M
 - Priority: must
 - Status: TODO
@@ -91,7 +91,7 @@
 
 ### P3-08 · Logging infrastructure
 - Owner: A
-- Depends: P2-12
+- Depends: P2-01
 - Size: M
 - Priority: must
 - Status: TODO
@@ -133,6 +133,7 @@
 - Priority: must
 - Status: TODO
 - Goal: Deliver Phase 3.
+- Flow: do `/phase-close 3` inside this task (on a task branch cut from `phase/3`), merge it into `phase/3`; on delivery day run `/phase-deliver 3` (PR `phase/3` → `main`, merge commit, tag `phase-3`).
 - Deliverables:
   - `/phase-close 3` (fresh DB → seed → demo → dump → tag `phase-3`). Managers list with reasons drafted in docs/report/managers.md.
 - DoD:

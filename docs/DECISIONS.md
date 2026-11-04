@@ -31,10 +31,17 @@ Add new ones with `/decision`. Status: PROPOSED | ACCEPTED | SUPERSEDED.
 ## D-007 — Email verification via signed token — ACCEPTED
 - `django.core.signing.TimestampSigner`/`dumps`, 48h expiry. Unverified users can log in but cannot book or create hotels.
 
-## D-008 — Squash merge, merge-main-into-branch (no rebase), no force push — ACCEPTED
+## D-008 — Squash merge, merge-main-into-branch (no rebase), no force push — PARTIALLY SUPERSEDED by D-010 (merge methods)
 - Reason: two beginners, linear `main`, one commit per task.
 
 ## D-009 — Bonus selection (priority) — ACCEPTED
 1. Must-do bonuses (cheap, in course list): Permissions, Pagination, Fetch/AJAX, per-role dashboards.
 2. Then hotel-specific: booking confirmation email, reviews & ratings.
 3. Then optional: map, calendar, recommendations. SMS verification is skipped.
+
+## D-010 — Phase-branch model (stacked long-lived branches) — ACCEPTED
+- Context: we want to finish early but deliver each phase on its own deadline.
+- Decision: `phase/2`, `phase/3`, `phase/4` are long-lived, stacked (each contains the previous). Task PRs squash into their phase branch;
+  upstream→downstream "propagate" PRs and delivery PRs (`phase/N`→`main`) use MERGE COMMITS. `main` only receives deliveries. Tags `phase-N`.
+- Consequences: daily `/propagate` discipline; dependencies are per-task (not "after the gate"); schema changes go to the earliest possible phase;
+  GitHub: merge commits + squash enabled, auto-delete head branches OFF, branch protection on `main` and `phase/*`.

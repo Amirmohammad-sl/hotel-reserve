@@ -32,3 +32,8 @@ them via PR comment.
 ## Parallel work
 - Before starting a task check `python scripts/board.py --next --me`; don't start a task whose dependencies aren't DONE.
 - If you're idle (all yours are blocked): do `/review-pr` for the partner, `/viva-drill`, or docs/report parts.
+
+## Phase branches
+- Both operators work on the same stacked phase branches. Whoever merges a PR into `phase/N` is responsible for `/propagate` the same day.
+- Delivery (`/phase-deliver`) is done together; both attend; the partner approves the delivery PR.
+- Ownership map stays the same; the phase a task belongs to only decides its base branch.

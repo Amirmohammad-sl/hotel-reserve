@@ -2,7 +2,7 @@
 
 ### P4-01 · Email verification (backend + UI)
 - Owner: A
-- Depends: P3-11
+- Depends: P2-03, P2-06, P2-07
 - Size: L
 - Priority: must
 - Status: TODO
@@ -40,7 +40,7 @@
 
 ### P4-04 · Tests: managers, availability, booking, discounts
 - Owner: B
-- Depends: P3-11
+- Depends: P3-02, P3-04, P3-05
 - Size: L
 - Priority: must
 - Status: TODO
@@ -64,7 +64,7 @@
 
 ### P4-06 · Query & template optimisation (backend)
 - Owner: A
-- Depends: P3-11
+- Depends: P3-03, P3-04
 - Size: M
 - Priority: must
 - Status: TODO
@@ -76,7 +76,7 @@
 
 ### P4-07 · Frontend optimisation + polish
 - Owner: B
-- Depends: P3-11
+- Depends: P2-08, P2-09, P2-11
 - Size: M
 - Priority: must
 - Status: TODO
@@ -100,7 +100,7 @@
 
 ### P4-09 · Bonus: Pagination
 - Owner: B
-- Depends: P3-11
+- Depends: P3-03, P3-04
 - Size: M
 - Priority: bonus
 - Status: TODO
@@ -112,7 +112,7 @@
 
 ### P4-10 · Bonus: Fetch/AJAX live price quote
 - Owner: B
-- Depends: P3-11
+- Depends: P2-06, P2-08
 - Size: S
 - Priority: bonus
 - Status: TODO
@@ -136,7 +136,7 @@
 
 ### P4-12 · Bonus: Reviews & ratings
 - Owner: B
-- Depends: P3-11
+- Depends: P3-04
 - Size: M
 - Priority: bonus
 - Status: TODO
@@ -184,7 +184,7 @@
 
 ### P4-16 · Final report part 1 (diagrams, process per app, models)
 - Owner: A
-- Depends: P3-11
+- Depends: P3-03, P3-04
 - Size: L
 - Priority: must
 - Status: TODO
@@ -196,7 +196,7 @@
 
 ### P4-17 · Final report part 2 (managers, views) + testing + bonus list
 - Owner: B
-- Depends: P3-11
+- Depends: P3-03, P3-04
 - Size: L
 - Priority: must
 - Status: TODO
@@ -213,6 +213,7 @@
 - Priority: must
 - Status: TODO
 - Goal: Deliver the project.
+- Flow: do `/phase-close 4` inside this task (on a task branch cut from `phase/4`), merge it into `phase/4`; on delivery day run `/phase-deliver 4` (PR `phase/4` → `main`, merge commit, tag `phase-4`).
 - Deliverables:
   - Assemble the final report (Word/PDF from docs/report/*.md — use the docx/pdf tooling), final DB dump `final`, tag `final`, clean-clone test, 10-min demo script, `/viva-drill` full rounds (each operator ≥ 2 rounds).
 - DoD:

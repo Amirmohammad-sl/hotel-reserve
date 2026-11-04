@@ -145,6 +145,7 @@
 - Priority: must
 - Status: TODO
 - Goal: Deliver Phase 2.
+- Flow: do `/phase-close 2` inside this task (on a task branch cut from `phase/2`), merge it into `phase/2`; on delivery day run `/phase-deliver 2` (PR `phase/2` → `main`, merge commit, tag `phase-2`).
 - Deliverables:
   - Update API_CONTRACT.md to what exists; `/phase-close 2` (fresh DB → migrate → seed → demo script, DB dump, tag `phase-2`).
 - DoD:

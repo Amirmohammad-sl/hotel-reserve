@@ -56,3 +56,6 @@ Django + PostgreSQL backend, React + Vite + Tailwind frontend. Built by two oper
    npm run build
    ```
 ## Demo accounts / seed data (filled in P2-10)
+
+## Branch model
+See `docs/PHASE_BRANCHES.md` (stacked phase branches; `main` = delivered phases only).
