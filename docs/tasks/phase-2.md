@@ -5,13 +5,13 @@
 - Depends: P1-10
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Shared building blocks used by every view.
 - Deliverables:
   - `apps/core/http.py` (final), `decorators.py` (`login_required_json`, `role_required`), `forms.py` helper `form_errors(form)`.
   - JSON 404/500 handlers for `/api/` paths; CSRF endpoint `/api/auth/csrf/`.
 - DoD:
-  - [ ] Unit tests for helpers/decorators (401/403/ok) pass.
+  - [x] Unit tests for helpers/decorators (401/403/ok) pass.
 
 ### P2-02 · Auth: forms + views (register, login, logout, me)
 - Owner: A
