@@ -36,7 +36,9 @@ _cache_show = {}
 
 def run(*cmd):
     try:
-        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=30)
+        return subprocess.run(
+            cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
+        )
     except Exception:
         return None
 
