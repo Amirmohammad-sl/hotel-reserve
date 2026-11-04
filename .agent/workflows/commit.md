@@ -1,13 +1,13 @@
 ---
-description: Safe, small commit with conventional message and task id; pushes the feature branch
+description: Safe, small commit with conventional message and task id; pushes the task branch
 ---
-# /commit [optional hint]
+# /commit [hint]
 // turbo
-1. `git branch --show-current` — refuse if it is `main`. Extract TASK-ID from the branch name.
+1. `git branch --show-current` — REFUSE if it is `main` or starts with `phase/` (tell the operator to create/switch to a task branch). Extract TASK-ID from the branch name (propagate/fix branches have their own naming).
 // turbo
-2. `git status --short` and `git diff --stat`. Explain to the operator (Persian) what is being committed. Flag: secrets/.env, logs, node_modules, venv, big binaries, files outside the task, debug prints, TODO leftovers. Remove or ask.
-3. Run the narrowest quick checks relevant to the changed files: backend → `python manage.py check` (and `makemigrations --check --dry-run` if models changed); frontend → `npm run lint --if-present`. Show output; fix before committing.
-4. Stage explicit paths (`git add <paths>`); avoid `git add .` unless status was reviewed and everything belongs together. Keep one logical change per commit (split if needed).
-5. Message: `<type>(<scope>): <imperative summary> [<TASK-ID>]` (≤ 72 chars) + optional body bullets (why). Types: feat, fix, docs, chore, test, refactor, wip (wip only for end-of-session).
-6. `git commit -m "..."` then `git push -u origin HEAD` (feature branches only).
-7. Print the short hash + one-line summary + "next suggested step".
+2. `git status --short`, `git diff --stat`; explain in Persian what is committed. Flag secrets/.env, logs, node_modules, venv, big binaries, files outside the task, debug prints.
+3. Quick checks for touched areas: backend `python manage.py check` (+ `makemigrations --check --dry-run` if models changed); frontend `npm run lint --if-present`. Fix before committing.
+4. Stage explicit paths. One logical change per commit.
+5. Message: `<type>(<scope>): <imperative summary> [<TASK-ID>]` (≤ 72 chars) + optional why-bullets.
+6. `git commit`, then `git push -u origin HEAD`.
+7. Print short hash, one-line summary, next suggested step.

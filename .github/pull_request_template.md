@@ -19,3 +19,4 @@
 - [ ] `docs/journal/<TASK-ID>.md` written
 - [ ] Task `Status: DONE` set in docs/tasks/phase-N.md
 - [ ] Author can explain every changed file; reviewer will be asked to as well
+- [ ] PR base is the task's phase branch (phase/N), not main (propagate PRs: merge commit; task PRs: squash)

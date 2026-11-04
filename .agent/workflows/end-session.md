@@ -4,7 +4,7 @@ description: Wrap up a work session: WIP commit, push, handoff notes
 # /end-session
 // turbo
 1. `git status -sb`, `git branch --show-current`.
-2. Uncommitted work on a feature branch → `/commit` it (use `wip(<ID>): ...` if unfinished). On `main` with changes → stop, move them to a branch first (ask).
-3. Push the branch. If the task isn't finished, append a "Progress notes / next steps" section to `docs/journal/<ID>.md` (what's done, what's left, exact next command, open questions) and commit+push.
-4. Print a Persian handoff summary: ✔ done · … in progress · ▶ next first step tomorrow (`/sync` then `/task-start <ID>` continues on the same branch) · ❓ open questions. Offer a short message to send the partner.
-5. Remind: new day → `/sync`; new task → NEW conversation.
+2. Uncommitted work on a task branch → `/commit` (use `wip(<ID>): ...` if unfinished). If you are on `main` or `phase/*` with changes → STOP: move them to a task branch (ask) — those branches are never edited directly.
+3. Push the branch. If unfinished, add "Progress notes / next steps" to `docs/journal/<ID>.md`, commit and push.
+4. Check `git rev-list --count origin/<BASE>..HEAD` vs behind-count; if the branch is far behind its base, note "run /sync first thing tomorrow".
+5. Persian handoff summary: ✔ done · … in progress · ▶ first step tomorrow (`/sync`, `/task-start <ID>` continues on the same branch) · ❓ questions. Offer a message for the partner. Remind: if you merged an upstream PR today and haven't, run `/propagate`.

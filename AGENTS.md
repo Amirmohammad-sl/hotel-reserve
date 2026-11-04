@@ -45,9 +45,9 @@ db_backup/          PostgreSQL dumps required by the course (committed at each p
 ```
 
 ## 4. HARD RULES (never break)
-1. Never push to `main`. Never force-push. Never `git reset --hard`, `git clean -fd`, or rewrite history
+1. Never push or commit to `main` or `phase/*`. Never force-push. Never `git reset --hard`, `git clean -fd`, or rewrite history
    without the operator explicitly typing the confirmation.
-2. Work on ONE task per conversation, on its own branch `feat/<TASK-ID>-<slug>`. Do not touch things outside the task.
+2. Work on ONE task per conversation, on its own branch `<type>/<TASK-ID>-<slug>` cut from the task's PHASE branch. Do not touch things outside the task.
 3. Never commit secrets (`.env`, keys, passwords), `node_modules/`, `venv/`, `logs/`, `__pycache__/`.
 4. Never invent endpoints, fields, or models. Follow `docs/API_CONTRACT.md` and `docs/DATA_MODEL.md`.
    If the contract must change → stop and tell the operator to run `/pair-contract`.
@@ -97,3 +97,9 @@ python scripts/board.py --next --me   # what can I start now
 - Docs touched if behaviour/contract changed (API_CONTRACT, DATA_MODEL, ARCHITECTURE).
 - `docs/journal/<TASK-ID>.md` written (summary + 3–5 viva questions with answers).
 - Task block `Status: DONE` in the PR. PR reviewed by the OTHER operator, who must be able to explain the change.
+
+## 8. Branch model (v2) — READ `.agent/rules/01-git-workflow.md` and docs/PHASE_BRANCHES.md
+- `main` = delivered phases only. Long-lived stacked branches `phase/2` → `phase/3` → `phase/4` hold work ahead of deadlines.
+- Base branch of a task: P2→`phase/2`, P3→`phase/3`, P4→`phase/4` (P0/P1→`main`). Ask: `python scripts/board.py --base <ID>`.
+- Task PR → its phase branch (squash). `/propagate` carries upstream work down (merge commit). `/phase-deliver N` merges `phase/N` → `main` (merge commit).
+- Fix for an earlier phase → `/phase-fix`, never on the later branch. Changes flow only downward: main → phase/2 → phase/3 → phase/4.
