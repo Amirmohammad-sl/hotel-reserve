@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
-  const { user, logout, isManager } = useAuth()
+  const { user, logout, isManager, isGuest } = useAuth()
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -43,6 +43,11 @@ export default function Navbar() {
             <NavLink to="/hotels" className={navLinkClass}>
               هتل‌ها
             </NavLink>
+            {isGuest && (
+              <NavLink to="/my-bookings" className={navLinkClass}>
+                رزروهای من
+              </NavLink>
+            )}
             {isManager && (
               <NavLink to="/manager" className={navLinkClass}>
                 پنل مدیریت
@@ -124,6 +129,15 @@ export default function Navbar() {
           >
             هتل‌ها
           </NavLink>
+          {isGuest && (
+            <NavLink
+              to="/my-bookings"
+              onClick={() => setIsOpen(false)}
+              className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-100"
+            >
+              رزروهای من
+            </NavLink>
+          )}
           {isManager && (
             <NavLink
               to="/manager"
