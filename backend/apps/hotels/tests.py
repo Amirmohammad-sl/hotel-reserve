@@ -561,3 +561,527 @@ class PublicHotelViewsTestCase(TestCase):
         url = reverse("hotels:room_detail", kwargs={"room_id": 99999})
         res = self.client.get(url)
         self.assertEqual(res.status_code, 404)
+
+
+# ===========================================================================
+# P2-03: Manager Hotel & Room-Type CRUD & DoD Isolation Tests
+# ===========================================================================
+
+from apps.hotels.forms import (
+    HotelForm,
+    RoomTypeForm,
+    amenity_to_dict,
+    hotel_to_dict,
+    room_type_to_dict,
+)
+
+
+class HotelFormsTestCase(TestCase):
+    """Tests for HotelForm, RoomTypeForm, and serializer helpers."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="form_manager",
+            email="form_manager@hotel.com",
+            password="securepassword123",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Form Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            star_rating=4,
+        )
+        self.wifi = Amenity.objects.create(name="WiFi", description="High-speed internet")
+        self.pool = Amenity.objects.create(name="Pool", description="Indoor pool")
+
+    def test_hotel_form_valid(self):
+        form = HotelForm(
+            data={
+                "name": "Shiraz Boutique Hotel",
+                "city": "Shiraz",
+                "address": "Zand St.",
+                "description": "Historical hotel",
+                "star_rating": 5,
+                "latitude": "29.610000",
+                "longitude": "52.540000",
+                "image_url": "https://example.com/hotel.jpg",
+                "is_active": True,
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        hotel = form.save(commit=False)
+        hotel.owner = self.manager
+        hotel.save()
+        self.assertEqual(hotel.name, "Shiraz Boutique Hotel")
+        self.assertEqual(hotel.city, "Shiraz")
+        self.assertTrue(hotel.is_active)
+
+    def test_hotel_form_required_fields_and_strip(self):
+        form = HotelForm(data={"name": "   ", "city": " ", "address": ""})
+        self.assertFalse(form.is_valid())
+        self.assertIn("name", form.errors)
+        self.assertIn("city", form.errors)
+        self.assertIn("address", form.errors)
+
+    def test_hotel_form_star_rating_range(self):
+        form_high = HotelForm(
+            data={"name": "H", "city": "C", "address": "A", "star_rating": 6}
+        )
+        self.assertFalse(form_high.is_valid())
+        self.assertIn("star_rating", form_high.errors)
+
+        form_zero = HotelForm(
+            data={"name": "H", "city": "C", "address": "A", "star_rating": 0}
+        )
+        self.assertFalse(form_zero.is_valid())
+        self.assertIn("star_rating", form_zero.errors)
+
+    def test_hotel_form_is_active_default_and_preserve(self):
+        # On create without is_active -> defaults True
+        form = HotelForm(data={"name": "H", "city": "C", "address": "A"})
+        self.assertTrue(form.is_valid())
+        self.assertTrue(form.cleaned_data["is_active"])
+
+        # Explicitly False
+        form_inactive = HotelForm(
+            data={"name": "H", "city": "C", "address": "A", "is_active": False}
+        )
+        self.assertTrue(form_inactive.is_valid())
+        self.assertFalse(form_inactive.cleaned_data["is_active"])
+
+        # On update without is_active in data -> preserves instance is_active
+        self.hotel.is_active = False
+        self.hotel.save()
+        form_update = HotelForm(
+            data={"name": "Updated H", "city": "Isfahan", "address": "Addr"},
+            instance=self.hotel,
+        )
+        self.assertTrue(form_update.is_valid())
+        self.assertFalse(form_update.cleaned_data["is_active"])
+
+    def test_room_type_form_valid_with_amenities(self):
+        form = RoomTypeForm(
+            data={
+                "title": "Deluxe Suite",
+                "description": "Spacious suite",
+                "capacity": 3,
+                "price_per_night": 2000000,
+                "quantity": 5,
+                "amenities": [self.wifi.id, self.pool.id],
+            },
+            hotel=self.hotel,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        rt = form.save()
+        self.assertEqual(rt.hotel, self.hotel)
+        self.assertEqual(rt.title, "Deluxe Suite")
+        self.assertEqual(rt.amenities.count(), 2)
+
+    def test_room_type_form_unique_title_per_hotel(self):
+        RoomType.objects.create(
+            hotel=self.hotel,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1000000,
+            quantity=4,
+        )
+        # Attempt to create room type with same title in same hotel
+        form = RoomTypeForm(
+            data={
+                "title": "Standard Room",
+                "capacity": 2,
+                "price_per_night": 1200000,
+                "quantity": 2,
+            },
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("title", form.errors)
+
+    def test_room_type_form_capacity_and_quantity_min_value(self):
+        form = RoomTypeForm(
+            data={
+                "title": "Invalid Room",
+                "capacity": 0,
+                "price_per_night": 1000000,
+                "quantity": 0,
+            },
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("capacity", form.errors)
+        self.assertIn("quantity", form.errors)
+
+    def test_serializers(self):
+        rt = RoomType.objects.create(
+            hotel=self.hotel,
+            title="King Room",
+            capacity=2,
+            price_per_night=1500000,
+            quantity=3,
+        )
+        rt.amenities.add(self.wifi)
+
+        amenity_dict = amenity_to_dict(self.wifi)
+        self.assertEqual(amenity_dict["id"], self.wifi.id)
+        self.assertEqual(amenity_dict["name"], "WiFi")
+
+        rt_dict = room_type_to_dict(rt)
+        self.assertEqual(rt_dict["id"], rt.id)
+        self.assertEqual(rt_dict["title"], "King Room")
+        self.assertEqual(len(rt_dict["amenities"]), 1)
+
+        hotel_dict = hotel_to_dict(self.hotel, include_room_types=True)
+        self.assertEqual(hotel_dict["id"], self.hotel.id)
+        self.assertEqual(hotel_dict["owner_id"], self.manager.id)
+        self.assertEqual(len(hotel_dict["room_types"]), 1)
+
+
+class ManagerHotelsViewsTestCase(TestCase):
+    """Integration tests for manager hotels and room-types CRUD endpoints and DoD isolation."""
+
+    def setUp(self):
+        self.manager_a = User.objects.create_user(
+            username="manager_a",
+            email="manager_a@hotel.com",
+            password="securepassword123",
+            role=User.Role.MANAGER,
+        )
+        self.manager_b = User.objects.create_user(
+            username="manager_b",
+            email="manager_b@hotel.com",
+            password="securepassword123",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="guest_user",
+            email="guest@hotel.com",
+            password="securepassword123",
+            role=User.Role.GUEST,
+        )
+
+        self.wifi = Amenity.objects.create(name="WiFi", description="Wireless Internet")
+        self.breakfast = Amenity.objects.create(name="Breakfast", description="Buffet breakfast")
+
+        self.hotel_a = Hotel.objects.create(
+            owner=self.manager_a,
+            name="Hotel A (Alpha)",
+            city="Tehran",
+            address="Valiasr St.",
+            star_rating=5,
+            is_active=True,
+        )
+        self.hotel_b = Hotel.objects.create(
+            owner=self.manager_b,
+            name="Hotel B (Beta)",
+            city="Isfahan",
+            address="Zayandeh Rood",
+            star_rating=4,
+            is_active=True,
+        )
+
+        self.rt_a = RoomType.objects.create(
+            hotel=self.hotel_a,
+            title="Suite Alpha",
+            capacity=2,
+            price_per_night=3000000,
+            quantity=5,
+        )
+        self.rt_a.amenities.add(self.wifi)
+
+        self.rt_b = RoomType.objects.create(
+            hotel=self.hotel_b,
+            title="Suite Beta",
+            capacity=3,
+            price_per_night=2500000,
+            quantity=3,
+        )
+        self.rt_b.amenities.add(self.breakfast)
+
+    # -----------------------------------------------------------------------
+    # Public Amenities Catalogue
+    # -----------------------------------------------------------------------
+    def test_amenities_list_view_public(self):
+        url = reverse("hotels:amenities_list")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertGreaterEqual(len(data), 2)
+        names = [a["name"] for a in data]
+        self.assertIn("WiFi", names)
+        self.assertIn("Breakfast", names)
+
+    # -----------------------------------------------------------------------
+    # Authentication & Role Guard Checks
+    # -----------------------------------------------------------------------
+    def test_manager_endpoints_unauthenticated_returns_401(self):
+        urls = [
+            reverse("hotels:manager_hotels_list_create"),
+            reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id}),
+            reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id}),
+            reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_a.id}),
+        ]
+        for url in urls:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, 401, f"URL {url} did not return 401 unauthenticated")
+
+    def test_manager_endpoints_guest_role_returns_403(self):
+        self.client.force_login(self.guest)
+        urls = [
+            reverse("hotels:manager_hotels_list_create"),
+            reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id}),
+            reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id}),
+            reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_a.id}),
+        ]
+        for url in urls:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, 403, f"URL {url} did not return 403 for guest role")
+
+    # -----------------------------------------------------------------------
+    # Manager Hotels List & Create
+    # -----------------------------------------------------------------------
+    def test_manager_list_own_hotels_only(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotels_list_create")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        hotel_ids = [h["id"] for h in data]
+        self.assertIn(self.hotel_a.id, hotel_ids)
+        self.assertNotIn(self.hotel_b.id, hotel_ids)
+
+    def test_manager_create_hotel_success(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotels_list_create")
+        payload = {
+            "name": "New Luxury Palace",
+            "city": "Shiraz",
+            "address": "Eram Garden Ave.",
+            "description": "5-star palace hotel",
+            "star_rating": 5,
+            "latitude": 29.630000,
+            "longitude": 52.520000,
+            "image_url": "https://example.com/palace.jpg",
+            "is_active": True,
+        }
+        res = self.client.post(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 201)
+        data = res.json().get("data")
+        self.assertEqual(data["name"], "New Luxury Palace")
+        self.assertEqual(data["owner_id"], self.manager_a.id)
+        self.assertTrue(Hotel.objects.filter(name="New Luxury Palace", owner=self.manager_a).exists())
+
+    def test_manager_create_hotel_validation_error(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotels_list_create")
+        # Missing required fields
+        res = self.client.post(url, {"star_rating": 5}, content_type="application/json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("errors", res.json())
+        errors = res.json()["errors"]
+        self.assertIn("name", errors)
+        self.assertIn("city", errors)
+        self.assertIn("address", errors)
+
+    def test_manager_create_hotel_invalid_json(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotels_list_create")
+        res = self.client.post(url, "invalid-json-content", content_type="application/json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("message", res.json())
+
+    # -----------------------------------------------------------------------
+    # Manager Hotel Detail, Update, Delete
+    # -----------------------------------------------------------------------
+    def test_manager_get_own_hotel_detail(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["id"], self.hotel_a.id)
+        self.assertEqual(data["name"], "Hotel A (Alpha)")
+        self.assertEqual(len(data["room_types"]), 1)
+        self.assertEqual(data["room_types"][0]["title"], "Suite Alpha")
+
+    def test_manager_update_own_hotel(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})
+        payload = {
+            "name": "Hotel A Renovated",
+            "city": "Tehran",
+            "address": "New Valiasr St.",
+            "star_rating": 4,
+            "is_active": False,
+        }
+        res = self.client.put(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["name"], "Hotel A Renovated")
+        self.assertFalse(data["is_active"])
+        self.hotel_a.refresh_from_db()
+        self.assertEqual(self.hotel_a.name, "Hotel A Renovated")
+        self.assertFalse(self.hotel_a.is_active)
+
+    def test_manager_delete_own_hotel(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(Hotel.objects.filter(id=self.hotel_a.id).exists())
+
+    # -----------------------------------------------------------------------
+    # CRITICAL DoD: Manager A cannot read/edit/delete Manager B's hotel
+    # -----------------------------------------------------------------------
+    def test_manager_a_cannot_read_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 404, "Manager A reading Manager B hotel must return 404")
+
+    def test_manager_a_cannot_update_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        payload = {
+            "name": "Hacked Hotel Name",
+            "city": "Tehran",
+            "address": "Hacked",
+            "is_active": False,
+        }
+        res = self.client.put(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 404, "Manager A updating Manager B hotel must return 404")
+        self.hotel_b.refresh_from_db()
+        self.assertEqual(self.hotel_b.name, "Hotel B (Beta)")
+
+    def test_manager_a_cannot_delete_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 404, "Manager A deleting Manager B hotel must return 404")
+        self.assertTrue(Hotel.objects.filter(id=self.hotel_b.id).exists())
+
+    def test_manager_a_cannot_create_room_type_for_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_b.id})
+        payload = {
+            "title": "Unauthorized Room",
+            "capacity": 2,
+            "price_per_night": 1000000,
+            "quantity": 1,
+        }
+        res = self.client.post(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 404, "Creating room type on another manager's hotel must return 404")
+        self.assertFalse(RoomType.objects.filter(title="Unauthorized Room").exists())
+
+    def test_manager_a_cannot_read_manager_b_room_type_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_b.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 404, "Manager A reading Manager B room type must return 404")
+
+    def test_manager_a_cannot_update_manager_b_room_type_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_b.id})
+        payload = {
+            "title": "Hacked Room Type",
+            "capacity": 2,
+            "price_per_night": 500000,
+            "quantity": 10,
+        }
+        res = self.client.put(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 404, "Manager A updating Manager B room type must return 404")
+        self.rt_b.refresh_from_db()
+        self.assertEqual(self.rt_b.title, "Suite Beta")
+
+    def test_manager_a_cannot_delete_manager_b_room_type_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_b.id})
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 404, "Manager A deleting Manager B room type must return 404")
+        self.assertTrue(RoomType.objects.filter(id=self.rt_b.id).exists())
+
+    # -----------------------------------------------------------------------
+    # Manager Room Types List & Create
+    # -----------------------------------------------------------------------
+    def test_manager_list_own_room_types(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["id"], self.rt_a.id)
+
+    def test_manager_create_room_type_success(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id})
+        payload = {
+            "title": "Presidential Suite",
+            "description": "Top floor VIP suite",
+            "capacity": 4,
+            "price_per_night": 7000000,
+            "quantity": 2,
+            "amenities": [self.wifi.id, self.breakfast.id],
+        }
+        res = self.client.post(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 201)
+        data = res.json().get("data")
+        self.assertEqual(data["title"], "Presidential Suite")
+        self.assertEqual(data["capacity"], 4)
+        self.assertEqual(len(data["amenities"]), 2)
+        self.assertTrue(RoomType.objects.filter(title="Presidential Suite", hotel=self.hotel_a).exists())
+
+    def test_manager_create_duplicate_room_type_title_returns_400(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id})
+        payload = {
+            "title": "Suite Alpha",  # already exists in hotel_a
+            "capacity": 2,
+            "price_per_night": 3500000,
+            "quantity": 1,
+        }
+        res = self.client.post(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("errors", res.json())
+        self.assertIn("title", res.json()["errors"])
+
+    # -----------------------------------------------------------------------
+    # Manager Room Type Detail, Update, Delete
+    # -----------------------------------------------------------------------
+    def test_manager_get_own_room_type(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_a.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["id"], self.rt_a.id)
+        self.assertEqual(data["title"], "Suite Alpha")
+
+    def test_manager_update_own_room_type(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_a.id})
+        payload = {
+            "title": "Suite Alpha Superior",
+            "capacity": 3,
+            "price_per_night": 3200000,
+            "quantity": 6,
+            "amenities": [self.wifi.id, self.breakfast.id],
+        }
+        res = self.client.put(url, payload, content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["title"], "Suite Alpha Superior")
+        self.assertEqual(data["capacity"], 3)
+        self.assertEqual(len(data["amenities"]), 2)
+        self.rt_a.refresh_from_db()
+        self.assertEqual(self.rt_a.title, "Suite Alpha Superior")
+        self.assertEqual(self.rt_a.capacity, 3)
+
+    def test_manager_delete_own_room_type(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.rt_a.id})
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(RoomType.objects.filter(id=self.rt_a.id).exists())

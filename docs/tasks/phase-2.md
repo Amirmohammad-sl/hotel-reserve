@@ -30,27 +30,27 @@
 - Depends: P2-02
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Managers CRUD their hotels and room types.
 - Deliverables:
   - `HotelForm`, `RoomTypeForm` (amenities), `/api/manager/hotels/...`, `/api/manager/room-types/...`, `/api/amenities/`.
   - Ownership enforced (404 for others' objects).
 - DoD:
-  - [ ] Manager A cannot read/edit Manager B's hotel (checked manually, test added).
+  - [x] Manager A cannot read/edit Manager B's hotel (checked manually, test added).
 
 ### P2-04 · Manager: bookings, availability, discount codes
 - Owner: A
 - Depends: P2-03, P1-05
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: The remaining manager features of the spec.
 - Deliverables:
   - `DiscountCodeForm` (valid dates, percent range, unique code per hotel) + CRUD endpoints.
   - Bookings list for own hotels (simple ORM; managers come in Phase 3).
   - Availability endpoint: for each room type and day → total, reserved, free.
 - DoD:
-  - [ ] Availability numbers match hand-computed example with 3 overlapping bookings (in journal).
+  - [x] Availability numbers match hand-computed example with 3 overlapping bookings (in journal).
 
 ### P2-05 · Public hotel search & detail views
 - Owner: B
@@ -70,13 +70,13 @@
 - Depends: P2-05, P2-02
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Complete guest booking flow on the backend.
 - Deliverables:
   - `BookingForm`, `quote`, `discounts/validate`, `bookings/`, `bookings/mine/`, `bookings/{id}/cancel/` with rules from DATA_MODEL.md
     (capacity, availability, discount validity, used_count, cancellation rule).
 - DoD:
-  - [ ] Booking when full returns 409; cancelling frees the rooms; discount counter changes correctly (shown in shell).
+  - [x] Booking when full returns 409; cancelling frees the rooms; discount counter changes correctly (shown in shell).
 
 ### P2-07 · React: auth pages, AuthContext, route guards
 - Owner: B
