@@ -107,12 +107,12 @@
 - Depends: P2-03, P2-04, P2-07
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Manager UI for all manager features.
 - Deliverables:
   - My hotels (list/create/edit), room types (CRUD with amenities), bookings table, availability table (per room type/day), discount codes (CRUD).
 - DoD:
-  - [ ] Whole manager story clickable; a manager sees only own data.
+  - [x] Whole manager story clickable; a manager sees only own data.
 
 ### P2-10 · Test data: `seed_demo` command + fixtures
 - Owner: A
