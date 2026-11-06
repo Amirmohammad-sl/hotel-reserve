@@ -1,9 +1,14 @@
 import json
+from datetime import date
+from io import StringIO
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.core.management import call_command
 from django.middleware.csrf import _unmask_cipher_token
 from django.test import Client, RequestFactory, TestCase, override_settings
+from apps.bookings.models import Booking, DiscountCode
+from apps.hotels.models import Amenity, Hotel, RoomType
 from .decorators import login_required_json, role_required
 from .forms import form_errors
 from .http import json_error, json_ok, parse_json
@@ -13,6 +18,7 @@ from .views import (
     page_not_found_view,
     permission_denied_view,
     server_error_view,
+    spa_host_view,
 )
 
 User = get_user_model()
@@ -246,11 +252,49 @@ class ErrorHandlersTests(TestCase):
         self.assertEqual(res.json(), {"message": "Resource not found."})
 
 
-from io import StringIO
-from datetime import date
-from django.core.management import call_command
-from apps.bookings.models import Booking, DiscountCode
-from apps.hotels.models import Amenity, Hotel, RoomType
+class SpaHostViewTests(TestCase):
+    """Test suite for SPA host template rendering and client-side deep routing (P2-11)."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_root_path_serves_spa_template(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+        self.assertContains(response, '<div id="root"></div>')
+        self.assertContains(response, 'src="/static/assets/app.js"')
+        self.assertContains(response, 'href="/static/assets/app.css"')
+        # Ensure CSRF cookie is seeded for SPA mutations
+        self.assertIn("csrftoken", response.cookies)
+
+    def test_deep_link_hotels_detail_serves_spa_template(self):
+        response = self.client.get("/hotels/3")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+        self.assertContains(response, '<div id="root"></div>')
+
+    def test_deep_link_my_bookings_serves_spa_template(self):
+        response = self.client.get("/my-bookings")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+
+    def test_deep_link_manager_path_serves_spa_template(self):
+        response = self.client.get("/manager/hotels/create")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+
+    def test_api_routes_not_intercepted_by_spa_catch_all(self):
+        response = self.client.get("/api/health/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"data": {"status": "ok"}})
+
+    def test_unknown_api_route_returns_json_404_not_spa_html(self):
+        response = self.client.get("/api/nonexistent-route-xyz/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers.get("Content-Type"), "application/json")
+        data = response.json()
+        self.assertEqual(data.get("message"), "Resource not found.")
 
 
 class SeedDemoCommandTests(TestCase):
