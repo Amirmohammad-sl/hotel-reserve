@@ -83,12 +83,12 @@
 - Depends: P2-02
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Users can register/login/logout in the UI.
 - Deliverables:
   - Login/Register pages (field errors), `AuthContext`, `RequireAuth`, `RequireRole`, Navbar by role.
 - DoD:
-  - [ ] Full register→login→logout in browser; refresh keeps session; guest cannot open /manager.
+  - [x] Full register→login→logout in browser; refresh keeps session; guest cannot open /manager.
 
 ### P2-08 · React: guest pages
 - Owner: B
