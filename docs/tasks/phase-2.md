@@ -18,12 +18,12 @@
 - Depends: P2-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Session authentication per API_CONTRACT.
 - Deliverables:
   - `RegisterForm` (password confirmation, unique email/username, role guest|manager), `LoginForm` (username or email), views + urls.
 - DoD:
-  - [ ] Register→login→me→logout works with curl/Postman using cookies + CSRF; wrong password gives 400 with field errors.
+  - [x] Register→login→me→logout works with curl/Postman using cookies + CSRF; wrong password gives 400 with field errors.
 
 ### P2-03 · Manager: hotel & room-type forms/views
 - Owner: A
@@ -57,13 +57,13 @@
 - Depends: P2-01, P1-10
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Guests can search by city, dates, capacity and see details.
 - Deliverables:
   - `/api/cities/`, `/api/hotels/`, `/api/hotels/{id}/`, `/api/hotels/{id}/rooms/`, `/api/rooms/{id}/` with a `SearchForm` validating query params
     (check_in < check_out, not in the past, guests ≥ 1).
 - DoD:
-  - [ ] Searching with dates excludes hotels with no room type available (verified with seed-like data).
+  - [x] Searching with dates excludes hotels with no room type available (verified with seed-like data).
 
 ### P2-06 · Booking: quote, discount validate, create, mine, cancel
 - Owner: B
