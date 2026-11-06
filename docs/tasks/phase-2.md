@@ -95,12 +95,12 @@
 - Depends: P2-05, P2-06, P2-07
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Search → details → book → my bookings in the UI.
 - Deliverables:
   - Home with search form (city select, dates, guests), hotel list, hotel detail with room types, room detail, booking form with discount code + price summary, My bookings with cancel.
 - DoD:
-  - [ ] Whole guest story clickable; loading/error/empty states exist; responsive at 375px and desktop.
+  - [x] Whole guest story clickable; loading/error/empty states exist; responsive at 375px and desktop.
 
 ### P2-09 · React: manager pages
 - Owner: A
