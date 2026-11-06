@@ -115,11 +115,17 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# Frontend production build assets (P2-11)
+FRONTEND_DIST_DIR = BASE_DIR.parent / "frontend" / "dist"
+if not FRONTEND_DIST_DIR.exists():
+    FRONTEND_DIST_DIR.mkdir(parents=True, exist_ok=True)
+STATICFILES_DIRS = [FRONTEND_DIST_DIR]
+
 # Media files
-MEDIA_URL = "media/"
+MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
