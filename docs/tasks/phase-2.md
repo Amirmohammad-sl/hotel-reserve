@@ -70,13 +70,13 @@
 - Depends: P2-05, P2-02
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Complete guest booking flow on the backend.
 - Deliverables:
   - `BookingForm`, `quote`, `discounts/validate`, `bookings/`, `bookings/mine/`, `bookings/{id}/cancel/` with rules from DATA_MODEL.md
     (capacity, availability, discount validity, used_count, cancellation rule).
 - DoD:
-  - [ ] Booking when full returns 409; cancelling frees the rooms; discount counter changes correctly (shown in shell).
+  - [x] Booking when full returns 409; cancelling frees the rooms; discount counter changes correctly (shown in shell).
 
 ### P2-07 · React: auth pages, AuthContext, route guards
 - Owner: B
