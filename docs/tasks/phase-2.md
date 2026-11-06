@@ -43,14 +43,14 @@
 - Depends: P2-03, P1-05
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: The remaining manager features of the spec.
 - Deliverables:
   - `DiscountCodeForm` (valid dates, percent range, unique code per hotel) + CRUD endpoints.
   - Bookings list for own hotels (simple ORM; managers come in Phase 3).
   - Availability endpoint: for each room type and day → total, reserved, free.
 - DoD:
-  - [ ] Availability numbers match hand-computed example with 3 overlapping bookings (in journal).
+  - [x] Availability numbers match hand-computed example with 3 overlapping bookings (in journal).
 
 ### P2-05 · Public hotel search & detail views
 - Owner: B
