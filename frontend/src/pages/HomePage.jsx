@@ -1,28 +1,36 @@
 import { Link } from 'react-router-dom'
+import SearchForm from '../components/SearchForm'
 import HealthBadge from '../components/HealthBadge'
 
 export default function HomePage() {
   return (
     <div className="space-y-12">
-      {/* Hero section */}
-      <section className="text-center py-12 px-4 sm:px-6 lg:px-8 bg-linear-to-b from-blue-50 to-white rounded-3xl border border-blue-100 shadow-xs">
-        <h1 className="text-3xl sm:text-5xl font-black text-gray-900 tracking-tight">
-          رزرو آسان و سریع <span className="text-blue-600">هتل‌های سراسر ایران</span>
-        </h1>
-        <p className="mt-4 text-base sm:text-lg text-gray-600 max-w-2xl mx-auto">
-          تجربه اقامتی دلنشین با بهترین قیمت، تنوع بالای اتاق‌ها و تخفیف‌های ویژه برای مهمانان گرامی.
-        </p>
+      {/* Hero section with embedded search */}
+      <section className="py-12 px-4 sm:px-6 lg:px-8 bg-linear-to-b from-blue-50 to-white rounded-3xl border border-blue-100 shadow-xs">
+        <div className="text-center max-w-3xl mx-auto">
+          <h1 className="text-3xl sm:text-5xl font-black text-gray-900 tracking-tight">
+            رزرو آسان و سریع <span className="text-blue-600">هتل‌های سراسر ایران</span>
+          </h1>
+          <p className="mt-4 text-base sm:text-lg text-gray-600">
+            تجربه اقامتی دلنشین با بهترین قیمت، تنوع بالای اتاق‌ها و تخفیف‌های ویژه برای مهمانان گرامی.
+          </p>
+        </div>
+
+        {/* Prominent Search Bar */}
+        <div className="mt-8 max-w-4xl mx-auto">
+          <SearchForm />
+        </div>
 
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             to="/hotels"
-            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-xs transition-colors"
+            className="px-6 py-2.5 rounded-xl bg-white text-gray-700 font-medium border border-gray-300 hover:bg-gray-50 shadow-xs transition-colors text-sm"
           >
-            مشاهده و جستجوی هتل‌ها
+            مشاهده تمام هتل‌ها
           </Link>
           <Link
             to="/manager"
-            className="px-6 py-3 rounded-xl bg-white text-gray-700 font-medium border border-gray-300 hover:bg-gray-50 transition-colors"
+            className="px-6 py-2.5 rounded-xl bg-white text-gray-700 font-medium border border-gray-300 hover:bg-gray-50 shadow-xs transition-colors text-sm"
           >
             ورود به پنل هتل‌داران
           </Link>
