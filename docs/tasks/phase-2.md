@@ -30,13 +30,13 @@
 - Depends: P2-02
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Managers CRUD their hotels and room types.
 - Deliverables:
   - `HotelForm`, `RoomTypeForm` (amenities), `/api/manager/hotels/...`, `/api/manager/room-types/...`, `/api/amenities/`.
   - Ownership enforced (404 for others' objects).
 - DoD:
-  - [ ] Manager A cannot read/edit Manager B's hotel (checked manually, test added).
+  - [x] Manager A cannot read/edit Manager B's hotel (checked manually, test added).
 
 ### P2-04 · Manager: bookings, availability, discount codes
 - Owner: A
