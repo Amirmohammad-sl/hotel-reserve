@@ -119,12 +119,12 @@
 - Depends: P2-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required "test data entry".
 - Deliverables:
   - `python manage.py seed_demo` (idempotent, `--reset` option): 2 managers, 5 guests, ≥ 6 hotels in ≥ 3 cities, 2–4 room types each, discounts, ~20 bookings (past, current, future, cancelled). Known demo passwords listed in README.
 - DoD:
-  - [ ] Running twice doesn't duplicate; `--reset` rebuilds; demo accounts documented.
+  - [x] Running twice doesn't duplicate; `--reset` rebuilds; demo accounts documented.
 
 ### P2-11 · SPA host template + production build served by Django
 - Owner: B
