@@ -1,14 +1,23 @@
-"""Public hotel search and detail views."""
+"""Hotel views for public search/detail and manager CRUD operations."""
 
 from collections import defaultdict
 from django.db.models import Q
 from django.views.decorators.http import require_GET
 
-from apps.core.forms import form_errors
-from apps.core.http import json_error, json_ok
 from apps.bookings.models import Booking
-from apps.hotels.forms import RoomSearchForm, SearchForm
-from apps.hotels.models import Hotel, RoomType
+from apps.core.decorators import role_required
+from apps.core.forms import form_errors
+from apps.core.http import json_error, json_ok, parse_json
+from apps.hotels.forms import (
+    HotelForm,
+    RoomSearchForm,
+    RoomTypeForm,
+    SearchForm,
+    amenity_to_dict,
+    hotel_to_dict,
+    room_type_to_dict,
+)
+from apps.hotels.models import Amenity, Hotel, RoomType
 from apps.hotels.services import calculate_room_type_available_count
 
 
@@ -277,3 +286,141 @@ def room_detail_view(request, room_id):
         ],
     }
     return json_ok(data)
+
+
+# ---------------------------------------------------------------------------
+# Amenities Catalogue
+# ---------------------------------------------------------------------------
+
+
+@require_GET
+def amenities_list_view(request):
+    """Return list of all amenities for forms and displays."""
+    amenities = Amenity.objects.all().order_by("name")
+    return json_ok([amenity_to_dict(a) for a in amenities])
+
+
+# ---------------------------------------------------------------------------
+# Manager Views (Owner A)
+# ---------------------------------------------------------------------------
+
+
+@role_required("manager")
+def manager_hotels_list_create_view(request):
+    """List manager's own hotels (GET) or create a new hotel (POST)."""
+    if request.method == "GET":
+        hotels = Hotel.objects.filter(owner=request.user).order_by("-created_at")
+        return json_ok([hotel_to_dict(h) for h in hotels])
+
+    if request.method == "POST":
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            return json_error(str(exc), status=400)
+
+        form = HotelForm(data)
+        if not form.is_valid():
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        hotel = form.save(commit=False)
+        hotel.owner = request.user
+        hotel.save()
+        return json_ok(hotel_to_dict(hotel), status=201)
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_hotel_detail_update_delete_view(request, hotel_id):
+    """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own hotel."""
+    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    if not hotel:
+        return json_error("Hotel not found.", status=404)
+
+    if request.method == "GET":
+        return json_ok(hotel_to_dict(hotel, include_room_types=True))
+
+    if request.method in ("PUT", "PATCH"):
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            return json_error(str(exc), status=400)
+
+        form = HotelForm(data, instance=hotel)
+        if not form.is_valid():
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        hotel = form.save()
+        return json_ok(hotel_to_dict(hotel, include_room_types=True))
+
+    if request.method == "DELETE":
+        hotel.delete()
+        return json_ok({"message": "Hotel deleted successfully."})
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_room_types_list_create_view(request, hotel_id):
+    """List room types (GET) or create a room type (POST) for a manager's own hotel."""
+    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    if not hotel:
+        return json_error("Hotel not found.", status=404)
+
+    if request.method == "GET":
+        room_types = (
+            hotel.room_types.prefetch_related("amenities")
+            .all()
+            .order_by("price_per_night")
+        )
+        return json_ok([room_type_to_dict(rt) for rt in room_types])
+
+    if request.method == "POST":
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            return json_error(str(exc), status=400)
+
+        form = RoomTypeForm(data, hotel=hotel)
+        if not form.is_valid():
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        room_type = form.save()
+        return json_ok(room_type_to_dict(room_type), status=201)
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_room_type_detail_update_delete_view(request, room_type_id):
+    """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own room type."""
+    room_type = (
+        RoomType.objects.select_related("hotel")
+        .prefetch_related("amenities")
+        .filter(id=room_type_id, hotel__owner=request.user)
+        .first()
+    )
+    if not room_type:
+        return json_error("Room type not found.", status=404)
+
+    if request.method == "GET":
+        return json_ok(room_type_to_dict(room_type))
+
+    if request.method in ("PUT", "PATCH"):
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            return json_error(str(exc), status=400)
+
+        form = RoomTypeForm(data, instance=room_type, hotel=room_type.hotel)
+        if not form.is_valid():
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        room_type = form.save()
+        return json_ok(room_type_to_dict(room_type))
+
+    if request.method == "DELETE":
+        room_type.delete()
+        return json_ok({"message": "Room type deleted successfully."})
+
+    return json_error("Method not allowed", status=405)
