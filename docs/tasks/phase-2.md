@@ -18,12 +18,12 @@
 - Depends: P2-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Session authentication per API_CONTRACT.
 - Deliverables:
   - `RegisterForm` (password confirmation, unique email/username, role guest|manager), `LoginForm` (username or email), views + urls.
 - DoD:
-  - [ ] Register→login→me→logout works with curl/Postman using cookies + CSRF; wrong password gives 400 with field errors.
+  - [x] Register→login→me→logout works with curl/Postman using cookies + CSRF; wrong password gives 400 with field errors.
 
 ### P2-03 · Manager: hotel & room-type forms/views
 - Owner: A
