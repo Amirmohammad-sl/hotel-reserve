@@ -131,12 +131,12 @@
 - Depends: P2-07
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: One command builds the UI and Django serves it (this is our "template").
 - Deliverables:
   - Vite output with fixed names (`assets/app.js`, `assets/app.css`); Django `templates/index.html` + catch-all view for non-`/api` paths; staticfiles config.
 - DoD:
-  - [ ] `npm run build` + `runserver` on :8000 shows the app, deep link `/hotels/3` reloads fine.
+  - [x] `npm run build` + `runserver` on :8000 shows the app, deep link `/hotels/3` reloads fine.
 
 ### P2-12 · PHASE 2 GATE (joint)
 - Owner: AB
