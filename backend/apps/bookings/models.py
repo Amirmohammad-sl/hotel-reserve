@@ -37,6 +37,22 @@ class DiscountCodeQuerySet(models.QuerySet):
         normalized_code = str(code).strip().upper()
         return self.valid_now(hotel, today=today).filter(code=normalized_code).first()
 
+    def for_hotel(self, hotel):
+        """Filter discount codes belonging to a specific hotel instance or hotel ID.
+
+        WHY: Encapsulates hotel scoping for discount codes across manager and booking views.
+        """
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(hotel_id=hotel_id)
+
+    def owned_by(self, user):
+        """Filter discount codes belonging to hotels owned by the specified manager user.
+
+        WHY: Enforces manager-level multi-tenancy and data isolation for coupon management,
+        preventing foreign managers from inspecting, altering, or deleting promo codes.
+        """
+        return self.filter(hotel__owner=user)
+
 
 class DiscountCodeManager(models.Manager.from_queryset(DiscountCodeQuerySet)):
     """Manager for DiscountCode model exposing DiscountCodeQuerySet methods."""
