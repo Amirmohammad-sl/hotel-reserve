@@ -11,7 +11,11 @@ from apps.bookings.models import Booking, DiscountCode
 from apps.hotels.models import Amenity, Hotel, RoomType
 from .decorators import login_required_json, role_required
 from .forms import form_errors
+import logging
+from django.conf import settings
+from django.http import HttpResponse
 from .http import json_error, json_ok, parse_json
+from .middleware import RequestLogMiddleware
 from .views import (
     bad_request_view,
     csrf_token_view,
@@ -390,3 +394,156 @@ class SeedDemoCommandTests(TestCase):
         self.assertIn("Reset requested", out.getvalue())
         self.assertIn("Successfully seeded demo data", out.getvalue())
         self.assertEqual(Booking.objects.count(), initial_bookings_count)
+
+
+
+class RequestLogMiddlewareTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_anonymous_request_logging(self):
+        def get_response(req):
+            return HttpResponse("OK", status=200)
+
+        middleware = RequestLogMiddleware(get_response)
+        request = self.factory.get("/api/test/anonymous/")
+        request.user = AnonymousUser()
+
+        with self.assertLogs("apps.core.middleware", level="INFO") as cm:
+            response = middleware(request)
+            self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(
+            any("GET /api/test/anonymous/ 200 user_id=anon duration_ms=" in msg for msg in cm.output),
+            f"Expected request log line not found in: {cm.output}",
+        )
+
+    def test_authenticated_request_logging(self):
+        user = User.objects.create_user(
+            username="logger_guest",
+            email="logger@hotel.local",
+            password="StrongPassword123!",
+            role="guest",
+        )
+
+        def get_response(req):
+            return HttpResponse("OK", status=200)
+
+        middleware = RequestLogMiddleware(get_response)
+        request = self.factory.get("/api/test/authenticated/")
+        request.user = user
+
+        with self.assertLogs("apps.core.middleware", level="INFO") as cm:
+            response = middleware(request)
+            self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(
+            any(f"GET /api/test/authenticated/ 200 user_id={user.id} duration_ms=" in msg for msg in cm.output),
+            f"Expected request log line with user_id={user.id} not found in: {cm.output}",
+        )
+
+    def test_request_logging_on_exception(self):
+        def get_response(req):
+            raise ValueError("Unexpected error inside view")
+
+        middleware = RequestLogMiddleware(get_response)
+        request = self.factory.get("/api/test/crash/")
+        request.user = AnonymousUser()
+
+        with self.assertLogs("apps.core.middleware", level="INFO") as cm:
+            with self.assertRaises(ValueError):
+                middleware(request)
+
+        self.assertTrue(
+            any("GET /api/test/crash/ 500 user_id=anon duration_ms=" in msg for msg in cm.output),
+            f"Expected status 500 on unhandled exception in: {cm.output}",
+        )
+
+
+class LoggingConfigurationTests(TestCase):
+    def test_logging_dict_structure(self):
+        self.assertTrue(hasattr(settings, "LOGGING"))
+        logging_cfg = settings.LOGGING
+        self.assertEqual(logging_cfg["version"], 1)
+
+        # Formatters check
+        formatters = logging_cfg.get("formatters", {})
+        self.assertIn("standard", formatters)
+        self.assertIn("verbose", formatters)
+        self.assertIn("{asctime}", formatters["standard"]["format"])
+        self.assertIn("{levelname}", formatters["standard"]["format"])
+        self.assertIn("{name}", formatters["standard"]["format"])
+
+        # Handlers check
+        handlers = logging_cfg.get("handlers", {})
+        self.assertIn("console", handlers)
+        self.assertIn("app_file", handlers)
+        self.assertIn("error_file", handlers)
+        self.assertIn("security_file", handlers)
+
+        # Rotating file handlers verification
+        for handler_name in ["app_file", "error_file", "security_file"]:
+            self.assertEqual(
+                handlers[handler_name]["class"],
+                "logging.handlers.RotatingFileHandler",
+            )
+            self.assertIn("maxBytes", handlers[handler_name])
+            self.assertIn("backupCount", handlers[handler_name])
+
+        # Loggers check
+        loggers = logging_cfg.get("loggers", {})
+        self.assertIn("", loggers)
+        self.assertIn("apps", loggers)
+        self.assertIn("security", loggers)
+        self.assertIn("django.security", loggers)
+
+    def test_logs_directory_exists(self):
+        logs_dir = getattr(settings, "LOGS_DIR", None)
+        self.assertIsNotNone(logs_dir)
+        self.assertTrue(logs_dir.exists())
+
+    def test_writing_to_rotating_log_files(self):
+        logs_dir = settings.LOGS_DIR
+
+        # 1. App logger info
+        app_logger = logging.getLogger("apps.core")
+        test_info_token = "unique_app_info_token_test_123"
+        app_logger.info("Test message %s", test_info_token)
+
+        app_log_file = logs_dir / "app.log"
+        self.assertTrue(app_log_file.exists())
+        with open(app_log_file, "r", encoding="utf-8") as f:
+            app_content = f.read()
+        self.assertIn(test_info_token, app_content)
+
+        # 2. Error logger
+        test_error_token = "unique_error_token_test_456"
+        app_logger.error("Test error %s", test_error_token)
+
+        error_log_file = logs_dir / "error.log"
+        self.assertTrue(error_log_file.exists())
+        with open(error_log_file, "r", encoding="utf-8") as f:
+            err_content = f.read()
+        self.assertIn(test_error_token, err_content)
+
+        # 3. Security logger
+        sec_logger = logging.getLogger("security")
+        test_sec_token = "unique_security_token_test_789"
+        sec_logger.info("Security audit %s", test_sec_token)
+
+        sec_log_file = logs_dir / "security.log"
+        self.assertTrue(sec_log_file.exists())
+        with open(sec_log_file, "r", encoding="utf-8") as f:
+            sec_content = f.read()
+        self.assertIn(test_sec_token, sec_content)
+
+    def test_e2e_request_logging_via_client(self):
+        client = Client()
+        response = client.get("/api/health/")
+        self.assertEqual(response.status_code, 200)
+
+        app_log_file = settings.LOGS_DIR / "app.log"
+        self.assertTrue(app_log_file.exists())
+        with open(app_log_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("GET /api/health/ 200 user_id=anon", content)
