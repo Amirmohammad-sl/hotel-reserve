@@ -143,13 +143,13 @@
 - Depends: P2-08, P2-09, P2-10, P2-11
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Deliver Phase 2.
 - Flow: do `/phase-close 2` inside this task (on a task branch cut from `phase/2`), merge it into `phase/2`; on delivery day run `/phase-deliver 2` (PR `phase/2` → `main`, merge commit, tag `phase-2`).
 - Deliverables:
   - Update API_CONTRACT.md to what exists; `/phase-close 2` (fresh DB → migrate → seed → demo script, DB dump, tag `phase-2`).
 - DoD:
-  - [ ] Each operator can demo the other's half end-to-end and explain the view → form → model path.
+  - [x] Each operator can demo the other's half end-to-end and explain the view → form → model path.
 
 ## Exit checklist (Phase 2)
-- [ ] views/urls/forms for all spec features · templates (SPA host) · seed data · DB backup · tag.
+- [x] views/urls/forms for all spec features · templates (SPA host) · seed data · DB backup · tag.
