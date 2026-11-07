@@ -1,9 +1,14 @@
 import json
+from datetime import date
+from io import StringIO
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
+from django.core.management import call_command
 from django.middleware.csrf import _unmask_cipher_token
 from django.test import Client, RequestFactory, TestCase, override_settings
+from apps.bookings.models import Booking, DiscountCode
+from apps.hotels.models import Amenity, Hotel, RoomType
 from .decorators import login_required_json, role_required
 from .forms import form_errors
 from .http import json_error, json_ok, parse_json
@@ -13,6 +18,7 @@ from .views import (
     page_not_found_view,
     permission_denied_view,
     server_error_view,
+    spa_host_view,
 )
 
 User = get_user_model()
@@ -244,3 +250,143 @@ class ErrorHandlersTests(TestCase):
         res = self.client.get("/api/non-existent-route-xyz/")
         self.assertEqual(res.status_code, 404)
         self.assertEqual(res.json(), {"message": "Resource not found."})
+
+
+class SpaHostViewTests(TestCase):
+    """Test suite for SPA host template rendering and client-side deep routing (P2-11)."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_root_path_serves_spa_template(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+        self.assertContains(response, '<div id="root"></div>')
+        self.assertContains(response, 'src="/static/assets/app.js"')
+        self.assertContains(response, 'href="/static/assets/app.css"')
+        # Ensure CSRF cookie is seeded for SPA mutations
+        self.assertIn("csrftoken", response.cookies)
+
+    def test_deep_link_hotels_detail_serves_spa_template(self):
+        response = self.client.get("/hotels/3")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+        self.assertContains(response, '<div id="root"></div>')
+
+    def test_deep_link_my_bookings_serves_spa_template(self):
+        response = self.client.get("/my-bookings")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+
+    def test_deep_link_manager_path_serves_spa_template(self):
+        response = self.client.get("/manager/hotels/create")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "index.html")
+
+    def test_api_routes_not_intercepted_by_spa_catch_all(self):
+        response = self.client.get("/api/health/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"data": {"status": "ok"}})
+
+    def test_unknown_api_route_returns_json_404_not_spa_html(self):
+        response = self.client.get("/api/nonexistent-route-xyz/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.headers.get("Content-Type"), "application/json")
+        data = response.json()
+        self.assertEqual(data.get("message"), "Resource not found.")
+
+
+class SeedDemoCommandTests(TestCase):
+    """Test suite for seed_demo management command, idempotency, and --reset flag."""
+
+    def test_seed_demo_creates_required_entities(self):
+        out = StringIO()
+        call_command("seed_demo", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Successfully seeded demo data", output)
+
+        # 2 managers and 5 guests
+        managers = User.objects.filter(role=User.Role.MANAGER, username__startswith="manager")
+        guests = User.objects.filter(role=User.Role.GUEST, username__startswith="guest")
+        self.assertEqual(managers.count(), 2)
+        self.assertEqual(guests.count(), 5)
+
+        # Authenticate known passwords
+        self.assertTrue(self.client.login(username="manager1", password="Manager123!"))
+        self.client.logout()
+        self.assertTrue(self.client.login(username="guest1", password="Guest123!"))
+        self.client.logout()
+
+        # >= 6 hotels in >= 3 cities
+        hotels = Hotel.objects.all()
+        self.assertGreaterEqual(hotels.count(), 6)
+        distinct_cities = set(Hotel.objects.values_list("city", flat=True))
+        self.assertGreaterEqual(len(distinct_cities), 3)
+
+        # 2 to 4 room types each with amenities
+        for hotel in hotels:
+            rt_count = hotel.room_types.count()
+            self.assertTrue(2 <= rt_count <= 4, f"Hotel {hotel.name} has {rt_count} room types, expected 2-4")
+            for rt in hotel.room_types.all():
+                self.assertTrue(rt.amenities.exists(), f"RoomType {rt.title} has no amenities")
+
+        # Discounts exist
+        discounts = DiscountCode.objects.all()
+        self.assertGreaterEqual(discounts.count(), 6)
+
+        # ~20 bookings with past, current, future, and cancelled states
+        bookings = Booking.objects.all()
+        self.assertGreaterEqual(bookings.count(), 20)
+
+        today = date.today()
+        past_bookings = bookings.filter(status=Booking.Status.CONFIRMED, check_out__lte=today)
+        current_bookings = bookings.filter(status=Booking.Status.CONFIRMED, check_in__lte=today, check_out__gt=today)
+        future_bookings = bookings.filter(status=Booking.Status.CONFIRMED, check_in__gt=today)
+        cancelled_bookings = bookings.filter(status=Booking.Status.CANCELLED)
+
+        self.assertTrue(past_bookings.exists(), "No past bookings found")
+        self.assertTrue(current_bookings.exists(), "No current bookings found")
+        self.assertTrue(future_bookings.exists(), "No future bookings found")
+        self.assertTrue(cancelled_bookings.exists(), "No cancelled bookings found")
+
+        # Ensure cancelled bookings have cancelled_at populated
+        for b in cancelled_bookings:
+            self.assertIsNotNone(b.cancelled_at)
+
+    def test_seed_demo_idempotency_does_not_duplicate(self):
+        # Run first time
+        call_command("seed_demo", stdout=StringIO())
+        counts_before = {
+            "users": User.objects.count(),
+            "hotels": Hotel.objects.count(),
+            "room_types": RoomType.objects.count(),
+            "amenities": Amenity.objects.count(),
+            "discounts": DiscountCode.objects.count(),
+            "bookings": Booking.objects.count(),
+        }
+
+        # Run second time without --reset
+        call_command("seed_demo", stdout=StringIO())
+        counts_after = {
+            "users": User.objects.count(),
+            "hotels": Hotel.objects.count(),
+            "room_types": RoomType.objects.count(),
+            "amenities": Amenity.objects.count(),
+            "discounts": DiscountCode.objects.count(),
+            "bookings": Booking.objects.count(),
+        }
+
+        self.assertEqual(counts_before, counts_after, "Re-running seed_demo duplicated records!")
+
+    def test_seed_demo_reset_flag_rebuilds_cleanly(self):
+        # Initial run
+        call_command("seed_demo", stdout=StringIO())
+        initial_bookings_count = Booking.objects.count()
+
+        # Run with --reset
+        out = StringIO()
+        call_command("seed_demo", reset=True, stdout=out)
+        self.assertIn("Reset requested", out.getvalue())
+        self.assertIn("Successfully seeded demo data", out.getvalue())
+        self.assertEqual(Booking.objects.count(), initial_bookings_count)
