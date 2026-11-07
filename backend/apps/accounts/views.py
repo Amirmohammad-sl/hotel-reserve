@@ -1,6 +1,7 @@
 """Authentication views returning standard JSON responses."""
 
 from django.contrib.auth import login, logout
+from django.utils import timezone
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
@@ -55,12 +56,18 @@ def login_view(request: HttpRequest) -> HttpResponse:
         user = form.get_user()
         login(request, user)
 
+        # Store last login time in session (P3-06)
+        login_time = timezone.now().isoformat()
+        request.session["last_login"] = login_time
+
         if form.cleaned_data.get("remember_me"):
             request.session.set_expiry(1209600)  # 2 weeks
         else:
             request.session.set_expiry(0)  # expires on browser close
 
-        return json_ok(user_to_dict(user), status=200)
+        user_data = user_to_dict(user)
+        user_data["last_login"] = login_time
+        return json_ok(user_data, status=200)
 
     return json_error("Invalid credentials.", errors=form_errors(form), status=400)
 
@@ -73,6 +80,7 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     Terminate user session.
     Returns 200 on success, 401 if unauthenticated.
     """
+    request.session.flush()
     logout(request)
     return json_ok({"message": "Successfully logged out."})
 
@@ -85,5 +93,9 @@ def me_view(request: HttpRequest) -> HttpResponse:
     Returns 200 with user object if authenticated, or {"data": null} if anonymous.
     """
     if request.user.is_authenticated:
-        return json_ok(user_to_dict(request.user))
+        data = user_to_dict(request.user)
+        data["last_login"] = request.session.get("last_login") or (
+            request.user.last_login.isoformat() if request.user.last_login else None
+        )
+        return json_ok(data)
     return JsonResponse({"data": None}, status=200)
