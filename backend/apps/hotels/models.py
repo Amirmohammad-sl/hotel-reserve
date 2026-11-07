@@ -105,8 +105,68 @@ class Hotel(models.Model):
         return f"{self.name} ({self.city})"
 
 
+class RoomTypeQuerySet(models.QuerySet):
+    """Custom QuerySet for RoomType providing availability calculations."""
+
+    def with_availability(self, check_in=None, check_out=None):
+        """Annotate each RoomType with 'reserved' and 'available_count' for [check_in, check_out).
+
+        WHY: Eliminates N+1 in-memory availability loops in hotel search, detail, and
+        booking flows by executing subquery aggregation at the database level.
+        Guarantees that same-day turnover (out on 5th, in on 5th) does not reduce inventory (D-006).
+        """
+        if not check_in or not check_out:
+            return self.annotate(
+                reserved=models.Value(0, output_field=models.IntegerField()),
+                available_count=models.F("quantity"),
+            )
+
+        from django.apps import apps
+
+        Booking = apps.get_model("bookings", "Booking")
+
+        overlapping_bookings = (
+            Booking.objects.filter(
+                room_type=models.OuterRef("pk"),
+                status=Booking.Status.CONFIRMED,
+                check_in__lt=check_out,
+                check_out__gt=check_in,
+            )
+            .values("room_type")
+            .annotate(total_rooms=models.Sum("rooms_count"))
+            .values("total_rooms")
+        )
+
+        return self.annotate(
+            reserved=models.functions.Coalesce(
+                models.Subquery(
+                    overlapping_bookings[:1],
+                    output_field=models.IntegerField(),
+                ),
+                models.Value(0, output_field=models.IntegerField()),
+            )
+        ).annotate(
+            available_count=models.functions.Greatest(
+                models.F("quantity") - models.F("reserved"),
+                models.Value(0, output_field=models.IntegerField()),
+                output_field=models.IntegerField(),
+            )
+        )
+
+    def available_in_range(self, check_in, check_out, rooms_count=1):
+        """Filter room types that have at least rooms_count available in the given date range.
+
+        WHY: Convenient chained filter for search queries requiring immediate inventory checks.
+        """
+        return self.with_availability(check_in, check_out).filter(
+            available_count__gte=rooms_count
+        )
+
+
 class RoomType(models.Model):
     """Room category defined within a hotel."""
+
+    objects = RoomTypeQuerySet.as_manager()
 
     hotel = models.ForeignKey(
         Hotel,
