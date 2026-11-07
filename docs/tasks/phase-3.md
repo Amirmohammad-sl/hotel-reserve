@@ -5,14 +5,14 @@
 - Depends: P1-10
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Reusable, documented query logic for users and hotels.
 - Deliverables:
   - `UserManager` (`create_user/create_superuser` with role rules, `.managers()`, `.guests()`).
   - `HotelQuerySet`: `.active()`, `.in_city(city)`, `.owned_by(user)`, `.with_min_price()`, `.priced_between(min,max)`.
   - Docstring per method: WHY it exists (report section 4).
 - DoD:
-  - [ ] Shell demo of each method in journal; `manage.py check` OK.
+  - [x] Shell demo of each method in journal; manage.py check OK.
 
 ### P3-02 · Managers: BookingQuerySet, DiscountCodeManager, room availability
 - Owner: B
