@@ -69,13 +69,13 @@
 - Depends: P2-02
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required session management.
 - Deliverables:
   - DB sessions, cookie flags (HttpOnly, SameSite, Secure when not DEBUG), session age; "remember me" (short vs 14 days); logout flushes session; `clearsessions` mention in README.
   - Show "last login time" stored in session on `/api/auth/me/`.
 - DoD:
-  - [ ] Browser devtools screenshot shows flags; remember-me changes cookie expiry.
+  - [x] Browser devtools screenshot shows flags; remember-me changes cookie expiry.
 
 ### P3-07 · Cookies: last search & recently viewed hotels
 - Owner: B
