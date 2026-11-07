@@ -82,12 +82,12 @@
 - Depends: P2-05, P2-08
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required cookie usage with a real feature.
 - Deliverables:
   - Cookie `last_city` (set on search; pre-fills search form). Session list of recently viewed hotel ids → `GET /api/hotels/recent/` → block on Home.
 - DoD:
-  - [ ] Works across refreshes; cookie visible in devtools; documented in API_CONTRACT.
+  - [x] Works across refreshes; cookie visible in devtools; documented in API_CONTRACT.
 
 ### P3-08 · Logging infrastructure
 - Owner: A
