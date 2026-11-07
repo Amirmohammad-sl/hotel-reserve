@@ -47,7 +47,7 @@ Get-Content $EnvPath | ForEach-Object {
     }
 }
 
-$DbName = if ($DbEnv.ContainsKey("DB_NAME")) { $DbEnv["DB_NAME"] } else { $env:DB_NAME }
+$DbName = if ($env:DB_NAME_OVERRIDE) { $env:DB_NAME_OVERRIDE } elseif ($DbEnv.ContainsKey("DB_NAME")) { $DbEnv["DB_NAME"] } else { $env:DB_NAME }
 $DbUser = if ($DbEnv.ContainsKey("DB_USER")) { $DbEnv["DB_USER"] } else { $env:DB_USER }
 $DbPass = if ($DbEnv.ContainsKey("DB_PASSWORD")) { $DbEnv["DB_PASSWORD"] } else { $env:DB_PASSWORD }
 $DbHost = if ($DbEnv.ContainsKey("DB_HOST")) { $DbEnv["DB_HOST"] } else { "localhost" }
@@ -57,9 +57,24 @@ $ActualDb = if ($TargetDb) { $TargetDb } else { $DbName }
 if (-not $ActualDb) { throw "DB_NAME / TargetDb missing" }
 if (-not $DbUser) { throw "DB_USER missing" }
 
+$PsqlCmd = "psql"
+if (-not (Get-Command "psql" -ErrorAction SilentlyContinue)) {
+    $candidates = @(
+        "C:\Program Files\PostgreSQL\18\bin\psql.exe",
+        "C:\Program Files\PostgreSQL\17\bin\psql.exe",
+        "C:\Program Files\PostgreSQL\16\bin\psql.exe"
+    )
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) {
+            $PsqlCmd = $cand
+            break
+        }
+    }
+}
+
 $env:PGPASSWORD = $DbPass
 try {
-    & psql -h $DbHost -p $DbPort -U $DbUser -d $ActualDb -f $File
+    & $PsqlCmd -h $DbHost -p $DbPort -U $DbUser -d $ActualDb -f $File
     if ($LASTEXITCODE -ne 0) {
         throw "psql restore failed with exit code $LASTEXITCODE"
     }
