@@ -1,5 +1,6 @@
 """Hotel views for public search/detail and manager CRUD operations."""
 
+import urllib.parse
 from collections import defaultdict
 from django.db.models import Q
 from django.views.decorators.http import require_GET
@@ -150,6 +151,52 @@ def hotels_list_view(request):
             }
         )
 
+    response = json_ok(results)
+    if city:
+        response.set_cookie(
+            "last_city",
+            urllib.parse.quote(city.strip()),
+            max_age=30 * 24 * 3600,
+            samesite="Lax",
+        )
+    return response
+
+
+@require_GET
+def recent_hotels_view(request):
+    """Return recently viewed hotels stored in user session."""
+    recent_ids = request.session.get("recent_hotel_ids", [])
+    if not recent_ids:
+        return json_ok([])
+
+    hotels = (
+        Hotel.objects.filter(id__in=recent_ids, is_active=True)
+        .prefetch_related("room_types")
+    )
+    hotels_by_id = {h.id: h for h in hotels}
+
+    results = []
+    for hid in recent_ids:
+        hotel = hotels_by_id.get(hid)
+        if not hotel:
+            continue
+        rts = hotel.room_types.all()
+        prices = [rt.price_per_night for rt in rts]
+        min_price = min(prices) if prices else None
+        results.append(
+            {
+                "id": hotel.id,
+                "name": hotel.name,
+                "city": hotel.city,
+                "address": hotel.address,
+                "description": hotel.description,
+                "star_rating": hotel.star_rating,
+                "image_url": hotel.image_url,
+                "min_price": min_price,
+                "available": True,
+            }
+        )
+
     return json_ok(results)
 
 
@@ -163,6 +210,14 @@ def hotel_detail_view(request, hotel_id):
     )
     if not hotel:
         return json_error("Hotel not found", status=404)
+
+    # Track recently viewed hotel id in session (LRU list, max 10)
+    recent_ids = list(request.session.get("recent_hotel_ids", []))
+    if hotel_id in recent_ids:
+        recent_ids.remove(hotel_id)
+    recent_ids.insert(0, hotel_id)
+    request.session["recent_hotel_ids"] = recent_ids[:10]
+    request.session.modified = True
 
     room_types_data = [
         {

@@ -12,6 +12,15 @@ export function getCookie(name) {
 }
 
 /**
+ * Utility to set a cookie with URL-encoding and standard attributes
+ */
+export function setCookie(name, value, days = 30) {
+  if (typeof document === 'undefined') return
+  const maxAge = days * 24 * 60 * 60
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`
+}
+
+/**
  * Ensures a CSRF cookie exists, fetching one from /api/auth/csrf/ if missing.
  */
 export async function ensureCsrfToken() {

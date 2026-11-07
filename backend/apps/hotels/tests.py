@@ -1089,6 +1089,124 @@ class ManagerHotelsViewsTestCase(TestCase):
 
 
 # ===========================================================================
+# P3-07: Cookies and Recent Hotels Test Suites
+# ===========================================================================
+class RecentHotelsAndCookiesTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="owner_p307",
+            email="owner_p307@hotel.com",
+            password="pass",
+            role=User.Role.MANAGER,
+        )
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager,
+            name="Tehran Grand Palace",
+            city="تهران",
+            address="Valiasr St.",
+            description="Classic hotel in Tehran",
+            star_rating=5,
+            is_active=True,
+        )
+        self.rt1 = RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2500000,
+            quantity=5,
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager,
+            name="Shiraz Garden Hotel",
+            city="شیراز",
+            address="Zand St.",
+            description="Garden hotel in Shiraz",
+            star_rating=4,
+            is_active=True,
+        )
+        self.rt2 = RoomType.objects.create(
+            hotel=self.hotel2,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1800000,
+            quantity=3,
+        )
+
+    def test_hotels_list_sets_last_city_cookie(self):
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url, {"city": "تهران"})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("last_city", res.cookies)
+        cookie_val = res.cookies["last_city"].value
+        import urllib.parse
+        self.assertEqual(urllib.parse.unquote(cookie_val), "تهران")
+
+    def test_hotels_list_without_city_does_not_set_cookie(self):
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn("last_city", res.cookies)
+
+    def test_hotel_detail_records_session_history(self):
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        url2 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel2.id})
+
+        # Visit hotel 1
+        res1 = self.client.get(url1)
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel1.id])
+
+        # Visit hotel 2
+        res2 = self.client.get(url2)
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel2.id, self.hotel1.id])
+
+        # Visit hotel 1 again (should move hotel 1 to top)
+        res3 = self.client.get(url1)
+        self.assertEqual(res3.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel1.id, self.hotel2.id])
+
+    def test_recent_hotels_view_empty_session(self):
+        url = reverse("hotels:recent_hotels")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get("data"), [])
+
+    def test_recent_hotels_view_returns_ordered_hotels(self):
+        # Visit hotel 2 then hotel 1
+        url2 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel2.id})
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        self.client.get(url2)
+        self.client.get(url1)
+
+        recent_url = reverse("hotels:recent_hotels")
+        res = self.client.get(recent_url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["id"], self.hotel1.id)
+        self.assertEqual(data[0]["name"], "Tehran Grand Palace")
+        self.assertEqual(data[0]["min_price"], 2500000)
+        self.assertEqual(data[1]["id"], self.hotel2.id)
+        self.assertEqual(data[1]["name"], "Shiraz Garden Hotel")
+        self.assertEqual(data[1]["min_price"], 1800000)
+
+    def test_recent_hotels_view_ignores_inactive_hotels(self):
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        self.client.get(url1)
+
+        # Deactivate hotel 1
+        self.hotel1.is_active = False
+        self.hotel1.save()
+
+        recent_url = reverse("hotels:recent_hotels")
+        res = self.client.get(recent_url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 0)
+
+
+# ===========================================================================
 # P3-02: RoomTypeQuerySet Availability Test Suites
 # ===========================================================================
 

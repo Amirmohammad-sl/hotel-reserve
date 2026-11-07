@@ -55,3 +55,11 @@ export async function getHotelRoomsApi(hotelId, params = {}) {
 export async function getRoomDetailApi(roomId) {
   return apiClient.get(`/api/rooms/${roomId}/`)
 }
+
+/**
+ * Fetch recently viewed hotels stored in user session.
+ * GET /api/hotels/recent/
+ */
+export async function getRecentHotelsApi() {
+  return apiClient.get('/api/hotels/recent/')
+}
