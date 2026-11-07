@@ -94,13 +94,13 @@
 - Depends: P2-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Central logging config.
 - Deliverables:
   - `LOGGING` dict (console + rotating files `logs/app.log`, `logs/error.log`, `logs/security.log`), formatter with time/level/module, `LOG_LEVEL` env.
   - `RequestLogMiddleware` (method, path, status, user id, duration ms).
 - DoD:
-  - [ ] Running a request writes expected lines; logs dir git-ignored.
+  - [x] Running a request writes expected lines; logs dir git-ignored.
 
 ### P3-09 · Logging coverage: core, accounts, hotels
 - Owner: A
