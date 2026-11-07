@@ -1085,3 +1085,182 @@ class ManagerHotelsViewsTestCase(TestCase):
         res = self.client.delete(url)
         self.assertEqual(res.status_code, 200)
         self.assertFalse(RoomType.objects.filter(id=self.rt_a.id).exists())
+
+
+
+# ===========================================================================
+# P3-02: RoomTypeQuerySet Availability Test Suites
+# ===========================================================================
+
+
+class RoomTypeQuerySetAvailabilityTests(TestCase):
+    """Test suite for RoomTypeQuerySet.with_availability and available_in_range (P3-02)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p3_hotel_mgr",
+            email="p3_hotel_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p3_hotel_guest",
+            email="p3_hotel_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="P3 Luxury Hotel",
+            city="Tabriz",
+            address="Shahgoli",
+            is_active=True,
+        )
+        self.rt1 = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Double",
+            capacity=2,
+            price_per_night=2_500_000,
+            quantity=4,
+        )
+        self.rt2 = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Presidential Suite",
+            capacity=4,
+            price_per_night=8_000_000,
+            quantity=1,
+        )
+
+    def test_with_availability_without_dates_returns_full_inventory(self):
+        """When check_in or check_out is None, reserved is 0 and available_count is quantity."""
+        qs = RoomType.objects.filter(hotel=self.hotel).with_availability()
+        for rt in qs:
+            self.assertEqual(rt.reserved, 0)
+            self.assertEqual(rt.available_count, rt.quantity)
+
+    def test_with_availability_with_confirmed_bookings(self):
+        """Confirmed overlapping bookings increment reserved and decrement available_count."""
+        # Book 3 rooms of rt1 from Sep 10 to Sep 15
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+            rooms_count=3,
+            guests_count=3,
+            nights=5,
+            price_per_night_snapshot=2_500_000,
+            subtotal=37_500_000,
+            total_price=37_500_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        qs = RoomType.objects.filter(hotel=self.hotel).with_availability(
+            check_in=date(2026, 9, 12),
+            check_out=date(2026, 9, 14),
+        )
+        rt1_res = qs.get(id=self.rt1.id)
+        rt2_res = qs.get(id=self.rt2.id)
+
+        # rt1: 4 total - 3 reserved = 1 available
+        self.assertEqual(rt1_res.reserved, 3)
+        self.assertEqual(rt1_res.available_count, 1)
+
+        # rt2: 1 total - 0 reserved = 1 available
+        self.assertEqual(rt2_res.reserved, 0)
+        self.assertEqual(rt2_res.available_count, 1)
+
+    def test_with_availability_cancelled_booking_does_not_reduce_inventory(self):
+        """Cancelled bookings must not consume inventory."""
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt2,
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+            rooms_count=1,
+            guests_count=2,
+            nights=5,
+            price_per_night_snapshot=8_000_000,
+            subtotal=40_000_000,
+            total_price=40_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+        qs = RoomType.objects.filter(id=self.rt2.id).with_availability(
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+        )
+        rt2_res = qs.get()
+        self.assertEqual(rt2_res.reserved, 0)
+        self.assertEqual(rt2_res.available_count, 1)
+
+    def test_with_availability_same_day_turnover_dod(self):
+        """
+        DoD: Same-day turnover (out on 5th, in on 5th) is available.
+        A booking checking out on Sep 5 does not block an arrival on Sep 5.
+        """
+        # Book ALL 4 rooms of rt1 from Sep 1 to Sep 5
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 9, 1),
+            check_out=date(2026, 9, 5),
+            rooms_count=4,
+            guests_count=4,
+            nights=4,
+            price_per_night_snapshot=2_500_000,
+            subtotal=40_000_000,
+            total_price=40_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Query for arrival on Sep 5 to Sep 10
+        qs_after = RoomType.objects.filter(id=self.rt1.id).with_availability(
+            check_in=date(2026, 9, 5),
+            check_out=date(2026, 9, 10),
+        )
+        res_after = qs_after.get()
+        self.assertEqual(res_after.reserved, 0, "Departing guests on 5th should not reserve morning of 5th arrival.")
+        self.assertEqual(res_after.available_count, 4)
+
+        # Query for departure on Sep 1
+        qs_before = RoomType.objects.filter(id=self.rt1.id).with_availability(
+            check_in=date(2026, 8, 25),
+            check_out=date(2026, 9, 1),
+        )
+        res_before = qs_before.get()
+        self.assertEqual(res_before.reserved, 0, "Arriving guests on 1st should not block departure on 1st.")
+        self.assertEqual(res_before.available_count, 4)
+
+    def test_available_in_range_filter(self):
+        """available_in_range() filters room types matching requested room quantity."""
+        # Book 3 rooms of rt1 (leaving 1)
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=3,
+            guests_count=3,
+            nights=4,
+            price_per_night_snapshot=2_500_000,
+            subtotal=30_000_000,
+            total_price=30_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Requesting 1 room: both rt1 (1 left) and rt2 (1 left) are available
+        qs_1 = RoomType.objects.filter(hotel=self.hotel).available_in_range(
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=1,
+        )
+        self.assertEqual(qs_1.count(), 2)
+
+        # Requesting 2 rooms: neither rt1 (only 1 left) nor rt2 (only 1 left) qualify
+        qs_2 = RoomType.objects.filter(hotel=self.hotel).available_in_range(
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=2,
+        )
+        self.assertEqual(qs_2.count(), 0)

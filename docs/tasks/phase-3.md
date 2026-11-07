@@ -19,14 +19,14 @@
 - Depends: P1-10
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Move availability/overlap/discount logic out of views.
 - Deliverables:
   - `BookingQuerySet`: `.active()`, `.overlapping(check_in, check_out)`, `.for_hotel(hotel)`, `.for_guest(user)`.
   - `DiscountCodeManager`: `.valid_now(hotel)`, `.get_valid(hotel, code)`.
   - `RoomTypeQuerySet.with_availability(check_in, check_out)` annotating `reserved` and `available_count` (touches apps/hotels — allowed by this task).
 - DoD:
-  - [ ] Same-day turnover (out on 5th, in on 5th) is available; overlap cases demonstrated in shell.
+  - [x] Same-day turnover (out on 5th, in on 5th) is available; overlap cases demonstrated in shell.
 
 ### P3-03 · Refactor manager-side views to use managers
 - Owner: A
