@@ -63,6 +63,30 @@ class UserModelTests(TestCase):
         self.assertEqual(admin_user.role, User.Role.MANAGER)
         self.assertTrue(admin_user.is_manager)
 
+    def test_user_managers_and_guests_querysets(self):
+        m1 = User.objects.create_user(username='m1', email='m1@ex.com', password='p', role=User.Role.MANAGER)
+        m2 = User.objects.create_user(username='m2', email='m2@ex.com', password='p', role=User.Role.MANAGER)
+        g1 = User.objects.create_user(username='g1', email='g1@ex.com', password='p')
+        g2 = User.objects.create_user(username='g2', email='g2@ex.com', password='p')
+
+        managers = list(User.objects.managers().values_list('id', flat=True))
+        guests = list(User.objects.guests().values_list('id', flat=True))
+
+        self.assertCountEqual(managers, [m1.id, m2.id])
+        self.assertCountEqual(guests, [g1.id, g2.id])
+        self.assertEqual(list(User.objects.filter(is_active=True).managers().values_list('id', flat=True)), managers)
+
+    def test_create_user_role_validation(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_user(username='no_email', email='', password='p')
+
+        with self.assertRaises(ValueError):
+            User.objects.create_user(username='bad_role', email='bad@ex.com', password='p', role='alien')
+
+    def test_create_superuser_role_validation(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(username='bad_admin', email='badadmin@ex.com', password='p', role=User.Role.GUEST)
+
 
 class UserAdminTests(TestCase):
     def test_custom_user_admin_registered(self):

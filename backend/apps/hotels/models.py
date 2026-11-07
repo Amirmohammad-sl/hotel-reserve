@@ -27,8 +27,69 @@ class Amenity(models.Model):
         return self.name
 
 
+class HotelQuerySet(models.QuerySet):
+    """Custom QuerySet for Hotel queries with reusable business domain logic."""
+
+    def active(self):
+        """Filter hotels that are active (is_active=True).
+
+        WHY: Soft-deactivated hotels must be excluded from public search, listings,
+        and reservation workflows. Centralising `is_active=True` avoids scattered
+        boolean flag checks and accidental leaks of inactive hotels to guests.
+        """
+        return self.filter(is_active=True)
+
+    def in_city(self, city):
+        """Filter hotels located in a specific city (case-insensitive and trimmed).
+
+        WHY: Search queries for cities may contain extra whitespace or mixed casing
+        (e.g. ' Tehran ' vs 'tehran'). Stripping whitespace and using `iexact`
+        ensures robust matching without repeating string cleanup in view logic.
+        """
+        if not city:
+            return self
+        cleaned_city = str(city).strip()
+        return self.filter(city__iexact=cleaned_city)
+
+    def owned_by(self, user):
+        """Filter hotels owned by a specific manager user.
+
+        WHY: Crucial for multi-tenant manager security. Ensures manager-side views,
+        hotel edits, room management, and statistics strictly operate within the
+        logged-in manager's boundary, preventing horizontal privilege escalation.
+        """
+        return self.filter(owner=user)
+
+    def with_min_price(self):
+        """Annotate each hotel with `min_price`, the lowest price_per_night among its room types.
+
+        WHY: Hotel search result cards display starting prices ('From X Toman').
+        Calculating this using SQL `MIN(room_types.price_per_night)` in a single query
+        avoids the classic N+1 query problem of fetching all room types in Python.
+        """
+        return self.annotate(min_price=models.Min("room_types__price_per_night"))
+
+    def priced_between(self, min_price=None, max_price=None):
+        """Filter hotels that have at least one room type within [min_price, max_price].
+
+        WHY: Allows guests to filter hotels based on nightly room budget. Applying both
+        minimum and maximum bounds in a single `.filter()` call ensures they match against
+        the SAME room type row (avoiding the multi-valued relationship trap in Django ORM).
+        """
+        filters = {}
+        if min_price is not None:
+            filters["room_types__price_per_night__gte"] = min_price
+        if max_price is not None:
+            filters["room_types__price_per_night__lte"] = max_price
+        if filters:
+            return self.filter(**filters).distinct()
+        return self
+
+
 class Hotel(models.Model):
     """Hotel establishment managed by a user with manager role."""
+
+    objects = HotelQuerySet.as_manager()
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
