@@ -1768,3 +1768,37 @@ class BookingQuerySetAndDiscountManagerTests(TestCase):
         self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "", today=today))
         # Wrong hotel
         self.assertIsNone(DiscountCode.objects.get_valid(self.other_hotel, "SUMMER20", today=today))
+
+    def test_discount_code_for_hotel_and_owned_by(self):
+        """DiscountCodeQuerySet.for_hotel and .owned_by scope discount codes correctly (P3-03)."""
+        dc1 = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SUMMER20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 8, 31),
+        )
+        dc2 = DiscountCode.objects.create(
+            hotel=self.other_hotel,
+            code="AUTUMN15",
+            percent=15,
+            valid_from=datetime.date(2026, 9, 1),
+            valid_to=datetime.date(2026, 11, 30),
+        )
+
+        hotel_dcs = DiscountCode.objects.for_hotel(self.hotel)
+        self.assertIn(dc1, hotel_dcs)
+        self.assertNotIn(dc2, hotel_dcs)
+
+        hotel_dcs_id = DiscountCode.objects.for_hotel(self.hotel.id)
+        self.assertIn(dc1, hotel_dcs_id)
+        self.assertNotIn(dc2, hotel_dcs_id)
+
+        mgr_dcs = DiscountCode.objects.owned_by(self.manager)
+        self.assertIn(dc1, mgr_dcs)
+        self.assertNotIn(dc2, mgr_dcs)
+
+        other_mgr_dcs = DiscountCode.objects.owned_by(self.other_manager)
+        self.assertIn(dc2, other_mgr_dcs)
+        self.assertNotIn(dc1, other_mgr_dcs)
+
