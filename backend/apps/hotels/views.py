@@ -364,7 +364,7 @@ def amenities_list_view(request):
 def manager_hotels_list_create_view(request):
     """List manager's own hotels (GET) or create a new hotel (POST)."""
     if request.method == "GET":
-        hotels = Hotel.objects.filter(owner=request.user).order_by("-created_at")
+        hotels = Hotel.objects.owned_by(request.user)
         return json_ok([hotel_to_dict(h) for h in hotels])
 
     if request.method == "POST":
@@ -388,7 +388,7 @@ def manager_hotels_list_create_view(request):
 @role_required("manager")
 def manager_hotel_detail_update_delete_view(request, hotel_id):
     """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
@@ -418,14 +418,14 @@ def manager_hotel_detail_update_delete_view(request, hotel_id):
 @role_required("manager")
 def manager_room_types_list_create_view(request, hotel_id):
     """List room types (GET) or create a room type (POST) for a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
     if request.method == "GET":
         room_types = (
-            hotel.room_types.prefetch_related("amenities")
-            .all()
+            RoomType.objects.for_hotel(hotel)
+            .prefetch_related("amenities")
             .order_by("price_per_night")
         )
         return json_ok([room_type_to_dict(rt) for rt in room_types])
@@ -450,9 +450,10 @@ def manager_room_types_list_create_view(request, hotel_id):
 def manager_room_type_detail_update_delete_view(request, room_type_id):
     """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own room type."""
     room_type = (
-        RoomType.objects.select_related("hotel")
+        RoomType.objects.owned_by(request.user)
+        .select_related("hotel")
         .prefetch_related("amenities")
-        .filter(id=room_type_id, hotel__owner=request.user)
+        .filter(id=room_type_id)
         .first()
     )
     if not room_type:
