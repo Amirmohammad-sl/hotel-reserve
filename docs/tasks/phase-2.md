@@ -83,73 +83,73 @@
 - Depends: P2-02
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Users can register/login/logout in the UI.
 - Deliverables:
   - Login/Register pages (field errors), `AuthContext`, `RequireAuth`, `RequireRole`, Navbar by role.
 - DoD:
-  - [ ] Full register→login→logout in browser; refresh keeps session; guest cannot open /manager.
+  - [x] Full register→login→logout in browser; refresh keeps session; guest cannot open /manager.
 
 ### P2-08 · React: guest pages
 - Owner: B
 - Depends: P2-05, P2-06, P2-07
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Search → details → book → my bookings in the UI.
 - Deliverables:
   - Home with search form (city select, dates, guests), hotel list, hotel detail with room types, room detail, booking form with discount code + price summary, My bookings with cancel.
 - DoD:
-  - [ ] Whole guest story clickable; loading/error/empty states exist; responsive at 375px and desktop.
+  - [x] Whole guest story clickable; loading/error/empty states exist; responsive at 375px and desktop.
 
 ### P2-09 · React: manager pages
 - Owner: A
 - Depends: P2-03, P2-04, P2-07
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Manager UI for all manager features.
 - Deliverables:
   - My hotels (list/create/edit), room types (CRUD with amenities), bookings table, availability table (per room type/day), discount codes (CRUD).
 - DoD:
-  - [ ] Whole manager story clickable; a manager sees only own data.
+  - [x] Whole manager story clickable; a manager sees only own data.
 
 ### P2-10 · Test data: `seed_demo` command + fixtures
 - Owner: A
 - Depends: P2-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required "test data entry".
 - Deliverables:
   - `python manage.py seed_demo` (idempotent, `--reset` option): 2 managers, 5 guests, ≥ 6 hotels in ≥ 3 cities, 2–4 room types each, discounts, ~20 bookings (past, current, future, cancelled). Known demo passwords listed in README.
 - DoD:
-  - [ ] Running twice doesn't duplicate; `--reset` rebuilds; demo accounts documented.
+  - [x] Running twice doesn't duplicate; `--reset` rebuilds; demo accounts documented.
 
 ### P2-11 · SPA host template + production build served by Django
 - Owner: B
 - Depends: P2-07
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: One command builds the UI and Django serves it (this is our "template").
 - Deliverables:
   - Vite output with fixed names (`assets/app.js`, `assets/app.css`); Django `templates/index.html` + catch-all view for non-`/api` paths; staticfiles config.
 - DoD:
-  - [ ] `npm run build` + `runserver` on :8000 shows the app, deep link `/hotels/3` reloads fine.
+  - [x] `npm run build` + `runserver` on :8000 shows the app, deep link `/hotels/3` reloads fine.
 
 ### P2-12 · PHASE 2 GATE (joint)
 - Owner: AB
 - Depends: P2-08, P2-09, P2-10, P2-11
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Deliver Phase 2.
 - Flow: do `/phase-close 2` inside this task (on a task branch cut from `phase/2`), merge it into `phase/2`; on delivery day run `/phase-deliver 2` (PR `phase/2` → `main`, merge commit, tag `phase-2`).
 - Deliverables:
   - Update API_CONTRACT.md to what exists; `/phase-close 2` (fresh DB → migrate → seed → demo script, DB dump, tag `phase-2`).
 - DoD:
-  - [ ] Each operator can demo the other's half end-to-end and explain the view → form → model path.
+  - [x] Each operator can demo the other's half end-to-end and explain the view → form → model path.
 
 ## Exit checklist (Phase 2)
-- [ ] views/urls/forms for all spec features · templates (SPA host) · seed data · DB backup · tag.
+- [x] views/urls/forms for all spec features · templates (SPA host) · seed data · DB backup · tag.

@@ -1,6 +1,7 @@
-"""Core views including health check, CSRF token endpoint, and custom error handlers."""
+"""Core views including health check, CSRF token endpoint, SPA host view, and custom error handlers."""
 
 from django.middleware.csrf import get_token
+from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET
 from .http import json_error, json_ok
@@ -21,6 +22,16 @@ def csrf_token_view(request):
     """
     token = get_token(request)
     return json_ok({"csrfToken": token})
+
+
+@require_GET
+@ensure_csrf_cookie
+def spa_host_view(request, *args, **kwargs):
+    """
+    Renders the Single Page Application index.html host template
+    for client-side routing.
+    """
+    return render(request, "index.html")
 
 
 def bad_request_view(request, exception=None):
