@@ -1382,3 +1382,127 @@ class RoomTypeQuerySetAvailabilityTests(TestCase):
             rooms_count=2,
         )
         self.assertEqual(qs_2.count(), 0)
+
+
+class HotelQuerySetTestCase(TestCase):
+    def setUp(self):
+        self.manager1 = User.objects.create_user(
+            username="manager_qs_1",
+            email="m_qs1@example.com",
+            password="password123",
+            role=User.Role.MANAGER,
+        )
+        self.manager2 = User.objects.create_user(
+            username="manager_qs_2",
+            email="m_qs2@example.com",
+            password="password123",
+            role=User.Role.MANAGER,
+        )
+
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Tehran Grand Hotel",
+            city="Tehran",
+            address="Valiasr St",
+            is_active=True,
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Tehran Inactive Hotel",
+            city="Tehran",
+            address="Enghelab St",
+            is_active=False,
+        )
+        self.hotel3 = Hotel.objects.create(
+            owner=self.manager2,
+            name="Isfahan Palace",
+            city="Isfahan",
+            address="Chaharbagh St",
+            is_active=True,
+        )
+
+        # Room types for hotel1 (min price: 100,000, max: 300,000)
+        RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Single",
+            capacity=1,
+            price_per_night=100000,
+            quantity=5,
+        )
+        RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Double",
+            capacity=2,
+            price_per_night=300000,
+            quantity=3,
+        )
+
+        # Room types for hotel3 (min price: 500,000)
+        RoomType.objects.create(
+            hotel=self.hotel3,
+            title="Suite",
+            capacity=4,
+            price_per_night=500000,
+            quantity=2,
+        )
+        # hotel2 has no room types
+
+    def test_active_filter(self):
+        active_ids = list(Hotel.objects.active().values_list("id", flat=True))
+        self.assertIn(self.hotel1.id, active_ids)
+        self.assertIn(self.hotel3.id, active_ids)
+        self.assertNotIn(self.hotel2.id, active_ids)
+
+    def test_in_city_filter(self):
+        # Case insensitive and stripped
+        tehran_hotels = list(Hotel.objects.in_city("tehran").values_list("id", flat=True))
+        self.assertCountEqual(tehran_hotels, [self.hotel1.id, self.hotel2.id])
+
+        tehran_padded = list(Hotel.objects.in_city("  TEHRAN  ").values_list("id", flat=True))
+        self.assertCountEqual(tehran_padded, [self.hotel1.id, self.hotel2.id])
+
+        isfahan_hotels = list(Hotel.objects.in_city("Isfahan").values_list("id", flat=True))
+        self.assertEqual(isfahan_hotels, [self.hotel3.id])
+
+        # Empty/None city returns all
+        self.assertEqual(Hotel.objects.in_city("").count(), 3)
+        self.assertEqual(Hotel.objects.in_city(None).count(), 3)
+
+    def test_owned_by_filter(self):
+        m1_hotels = list(Hotel.objects.owned_by(self.manager1).values_list("id", flat=True))
+        m2_hotels = list(Hotel.objects.owned_by(self.manager2).values_list("id", flat=True))
+        self.assertCountEqual(m1_hotels, [self.hotel1.id, self.hotel2.id])
+        self.assertEqual(m2_hotels, [self.hotel3.id])
+
+    def test_with_min_price_annotation(self):
+        hotels = {h.id: h.min_price for h in Hotel.objects.with_min_price()}
+        self.assertEqual(hotels[self.hotel1.id], 100000)
+        self.assertIsNone(hotels[self.hotel2.id])
+        self.assertEqual(hotels[self.hotel3.id], 500000)
+
+    def test_priced_between_filter(self):
+        # Between 50,000 and 150,000: only hotel1 (has room at 100,000)
+        qs1 = list(Hotel.objects.priced_between(50000, 150000).values_list("id", flat=True))
+        self.assertEqual(qs1, [self.hotel1.id])
+
+        # Between 400,000 and 600,000: only hotel3 (has room at 500,000)
+        qs2 = list(Hotel.objects.priced_between(400000, 600000).values_list("id", flat=True))
+        self.assertEqual(qs2, [self.hotel3.id])
+
+        # Between 100,000 and 500,000: both hotel1 and hotel3
+        qs3 = list(Hotel.objects.priced_between(100000, 500000).values_list("id", flat=True))
+        self.assertCountEqual(qs3, [self.hotel1.id, self.hotel3.id])
+
+        # Higher than available
+        qs4 = list(Hotel.objects.priced_between(min_price=600000).values_list("id", flat=True))
+        self.assertEqual(qs4, [])
+
+        # None bounds returns all
+        self.assertEqual(Hotel.objects.priced_between().count(), 3)
+
+    def test_chained_queryset_methods(self):
+        # Chaining: active + in_city + with_min_price + priced_between
+        results = Hotel.objects.active().in_city("tehran").with_min_price().priced_between(50000, 200000)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, self.hotel1.id)
+        self.assertEqual(results[0].min_price, 100000)
