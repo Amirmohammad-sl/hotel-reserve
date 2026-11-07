@@ -1457,3 +1457,314 @@ class BookingDoDTestCase(TestCase):
         res3 = self.client.post(reverse("bookings:booking-create"), payload2, content_type="application/json")
         self.assertEqual(res3.status_code, 201)
         self.assertEqual(res3.json()["data"]["status"], "confirmed")
+
+
+
+# ===========================================================================
+# P3-02: BookingQuerySet and DiscountCodeManager Test Suites
+# ===========================================================================
+
+
+class BookingQuerySetAndDiscountManagerTests(TestCase):
+    """Test suite for BookingQuerySet and DiscountCodeManager domain queries (P3-02)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p3_mgr",
+            email="p3_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.other_manager = User.objects.create_user(
+            username="p3_other_mgr",
+            email="p3_other_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p3_guest",
+            email="p3_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.other_guest = User.objects.create_user(
+            username="p3_other_guest",
+            email="p3_other_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="P3 Grand Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            is_active=True,
+        )
+        self.other_hotel = Hotel.objects.create(
+            owner=self.other_manager,
+            name="P3 Other Hotel",
+            city="Shiraz",
+            address="Zand St",
+            is_active=True,
+        )
+
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Executive Suite",
+            capacity=2,
+            price_per_night=3_000_000,
+            quantity=5,
+        )
+
+    def test_booking_queryset_active(self):
+        """active() returns only CONFIRMED bookings and excludes CANCELLED ones."""
+        b_confirmed = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 1),
+            check_out=datetime.date(2026, 9, 5),
+            rooms_count=1,
+            guests_count=1,
+            nights=4,
+            price_per_night_snapshot=3_000_000,
+            subtotal=12_000_000,
+            total_price=12_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        b_cancelled = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 10),
+            check_out=datetime.date(2026, 9, 15),
+            rooms_count=1,
+            guests_count=1,
+            nights=5,
+            price_per_night_snapshot=3_000_000,
+            subtotal=15_000_000,
+            total_price=15_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+        active_qs = Booking.objects.active()
+        self.assertIn(b_confirmed, active_qs)
+        self.assertNotIn(b_cancelled, active_qs)
+
+    def test_booking_queryset_same_day_turnover_dod(self):
+        """
+        DoD: Same-day turnover (out on 5th, in on 5th) does NOT trigger an overlap.
+        """
+        # Existing booking 1st to 5th
+        b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 1),
+            check_out=datetime.date(2026, 9, 5),
+            rooms_count=2,
+            guests_count=2,
+            nights=4,
+            price_per_night_snapshot=3_000_000,
+            subtotal=24_000_000,
+            total_price=24_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Query range starting on the 5th (same day guest 1 departs)
+        turnover_in = Booking.objects.overlapping(
+            check_in=datetime.date(2026, 9, 5),
+            check_out=datetime.date(2026, 9, 10),
+        )
+        self.assertNotIn(b1, turnover_in, "Same-day arrival should not overlap with departing booking.")
+
+        # Query range ending on the 1st (same day guest 1 arrives)
+        turnover_out = Booking.objects.overlapping(
+            check_in=datetime.date(2026, 8, 25),
+            check_out=datetime.date(2026, 9, 1),
+        )
+        self.assertNotIn(b1, turnover_out, "Same-day departure should not overlap with arriving booking.")
+
+    def test_booking_queryset_overlapping_scenarios(self):
+        """Verify full, partial start, and partial end overlap scenarios."""
+        # Booking: Sep 10 to Sep 20
+        b = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 10),
+            check_out=datetime.date(2026, 9, 20),
+            rooms_count=1,
+            guests_count=1,
+            nights=10,
+            price_per_night_snapshot=3_000_000,
+            subtotal=30_000_000,
+            total_price=30_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # 1. Enclosed inside: Sep 12 to Sep 18
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 12), datetime.date(2026, 9, 18)).filter(id=b.id).exists()
+        )
+        # 2. Straddling start: Sep 5 to Sep 15
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 5), datetime.date(2026, 9, 15)).filter(id=b.id).exists()
+        )
+        # 3. Straddling end: Sep 15 to Sep 25
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 15), datetime.date(2026, 9, 25)).filter(id=b.id).exists()
+        )
+        # 4. Strictly before: Sep 1 to Sep 10
+        self.assertFalse(
+            Booking.objects.overlapping(datetime.date(2026, 9, 1), datetime.date(2026, 9, 10)).filter(id=b.id).exists()
+        )
+        # 5. Strictly after: Sep 20 to Sep 25
+        self.assertFalse(
+            Booking.objects.overlapping(datetime.date(2026, 9, 20), datetime.date(2026, 9, 25)).filter(id=b.id).exists()
+        )
+
+    def test_booking_queryset_for_hotel_and_guest(self):
+        """for_hotel() and for_guest() filter isolation."""
+        b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 10, 1),
+            check_out=datetime.date(2026, 10, 3),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=3_000_000,
+            subtotal=6_000_000,
+            total_price=6_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        other_rt = RoomType.objects.create(
+            hotel=self.other_hotel,
+            title="Single Room",
+            price_per_night=1_000_000,
+            quantity=2,
+        )
+        b2 = Booking.objects.create(
+            guest=self.other_guest,
+            room_type=other_rt,
+            check_in=datetime.date(2026, 10, 1),
+            check_out=datetime.date(2026, 10, 3),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=1_000_000,
+            subtotal=2_000_000,
+            total_price=2_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # for_hotel with model instance and id
+        hotel_qs = Booking.objects.for_hotel(self.hotel)
+        self.assertIn(b1, hotel_qs)
+        self.assertNotIn(b2, hotel_qs)
+        self.assertEqual(list(hotel_qs), list(Booking.objects.for_hotel(self.hotel.id)))
+
+        # for_guest with model instance and id
+        guest_qs = Booking.objects.for_guest(self.guest)
+        self.assertIn(b1, guest_qs)
+        self.assertNotIn(b2, guest_qs)
+        self.assertEqual(list(guest_qs), list(Booking.objects.for_guest(self.guest.id)))
+
+        # Chaining
+        chained_qs = Booking.objects.for_hotel(self.hotel).for_guest(self.guest).active()
+        self.assertIn(b1, chained_qs)
+
+    def test_discount_code_manager_valid_now(self):
+        """valid_now() filters by active status, date range and max uses."""
+        today = datetime.date(2026, 6, 15)
+
+        # 1. Active and valid
+        d_valid = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="VALID20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=10,
+            used_count=2,
+            is_active=True,
+        )
+        # 2. Inactive
+        d_inactive = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="INACTIVE10",
+            percent=10,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            is_active=False,
+        )
+        # 3. Expired
+        d_expired = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="EXPIRED15",
+            percent=15,
+            valid_from=datetime.date(2026, 5, 1),
+            valid_to=datetime.date(2026, 5, 31),
+            is_active=True,
+        )
+        # 4. Future
+        d_future = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="FUTURE25",
+            percent=25,
+            valid_from=datetime.date(2026, 7, 1),
+            valid_to=datetime.date(2026, 7, 31),
+            is_active=True,
+        )
+        # 5. Depleted max_uses
+        d_depleted = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="DEPLETED30",
+            percent=30,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=5,
+            used_count=5,
+            is_active=True,
+        )
+        # 6. Unlimited uses (max_uses=None)
+        d_unlimited = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="UNLIMITED5",
+            percent=5,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=None,
+            used_count=100,
+            is_active=True,
+        )
+
+        valid_qs = DiscountCode.objects.valid_now(self.hotel, today=today)
+        self.assertIn(d_valid, valid_qs)
+        self.assertIn(d_unlimited, valid_qs)
+        self.assertNotIn(d_inactive, valid_qs)
+        self.assertNotIn(d_expired, valid_qs)
+        self.assertNotIn(d_future, valid_qs)
+        self.assertNotIn(d_depleted, valid_qs)
+
+    def test_discount_code_manager_get_valid(self):
+        """get_valid() retrieves matching normalized code or returns None."""
+        today = datetime.date(2026, 6, 15)
+        d = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SUMMER20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            is_active=True,
+        )
+
+        # Exact match
+        self.assertEqual(DiscountCode.objects.get_valid(self.hotel, "SUMMER20", today=today), d)
+        # Case insensitive and whitespace stripped
+        self.assertEqual(DiscountCode.objects.get_valid(self.hotel, "  summer20  ", today=today), d)
+        # Non-existent code
+        self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "NONEXISTENT", today=today))
+        # Empty string
+        self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "", today=today))
+        # Wrong hotel
+        self.assertIsNone(DiscountCode.objects.get_valid(self.other_hotel, "SUMMER20", today=today))
