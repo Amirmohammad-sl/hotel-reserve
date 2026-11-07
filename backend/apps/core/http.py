@@ -2,17 +2,19 @@ import json
 from django.http import JsonResponse
 
 
-def json_ok(data=None, status=200):
+def json_ok(data=None, status=200, **extra):
     """Return standard JSON success envelope {"data": ...}."""
     payload = {"data": data if data is not None else {}}
+    payload.update(extra)
     return JsonResponse(payload, status=status)
 
 
-def json_error(message, errors=None, status=400):
+def json_error(message, errors=None, status=400, **extra):
     """Return standard JSON error envelope {"message": ..., "errors": ...}."""
     payload = {"message": message}
     if errors is not None:
         payload["errors"] = errors
+    payload.update(extra)
     return JsonResponse(payload, status=status)
 
 
