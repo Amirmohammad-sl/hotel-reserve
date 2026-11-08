@@ -1,0 +1,15 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}
+سلام {{ recipient_name|default:"کاربر گرامی" }}،
+
+{{ message_body }}
+
+{% if action_url %}
+برای ادامه به پیوند زیر مراجعه نمایید:
+{{ action_url }}
+{% endif %}
+
+با احترام،
+تیم سامانه رزرواسیون هتل
+{% endblock %}
