@@ -33,12 +33,12 @@
 - Depends: P3-01, P3-02, P2-03, P2-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Views become thin.
 - Deliverables:
   - accounts/hotels/manager views call manager methods; no duplicated ORM filters.
 - DoD:
-  - [ ] Behaviour unchanged (manual smoke list in PR); fewer lines in views.
+  - [x] Behaviour unchanged (manual smoke list in PR); fewer lines in views.
 
 ### P3-04 · Refactor guest-side views to use managers
 - Owner: B

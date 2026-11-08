@@ -1383,6 +1383,48 @@ class RoomTypeQuerySetAvailabilityTests(TestCase):
         )
         self.assertEqual(qs_2.count(), 0)
 
+    def test_for_hotel_and_owned_by(self):
+        """RoomTypeQuerySet.for_hotel and .owned_by correctly scope room types (P3-03)."""
+        other_mgr = User.objects.create_user(
+            username="p3_other_hotel_mgr",
+            email="p3_other_hotel_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        other_hotel = Hotel.objects.create(
+            owner=other_mgr,
+            name="Other Hotel",
+            city="Tabriz",
+            address="Elgoli",
+            is_active=True,
+        )
+        other_rt = RoomType.objects.create(
+            hotel=other_hotel,
+            title="Single Room",
+            capacity=1,
+            price_per_night=1_000_000,
+            quantity=2,
+        )
+
+        hotel_rts = RoomType.objects.for_hotel(self.hotel)
+        self.assertIn(self.rt1, hotel_rts)
+        self.assertIn(self.rt2, hotel_rts)
+        self.assertNotIn(other_rt, hotel_rts)
+
+        hotel_rts_id = RoomType.objects.for_hotel(self.hotel.id)
+        self.assertIn(self.rt1, hotel_rts_id)
+        self.assertNotIn(other_rt, hotel_rts_id)
+
+        mgr_rts = RoomType.objects.owned_by(self.manager)
+        self.assertIn(self.rt1, mgr_rts)
+        self.assertIn(self.rt2, mgr_rts)
+        self.assertNotIn(other_rt, mgr_rts)
+
+        other_mgr_rts = RoomType.objects.owned_by(other_mgr)
+        self.assertIn(other_rt, other_mgr_rts)
+        self.assertNotIn(self.rt1, other_mgr_rts)
+
+
 
 class HotelQuerySetTestCase(TestCase):
     def setUp(self):
