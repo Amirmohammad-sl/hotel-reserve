@@ -37,6 +37,7 @@ class HotelModelsTestCase(TestCase):
             email="manager@hotel.com",
             password="securepassword123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.wifi = Amenity.objects.create(name="WiFi", description="High-speed internet")
         self.pool = Amenity.objects.create(name="Swimming Pool", description="Indoor heated pool")
@@ -249,6 +250,7 @@ class RoomAvailabilityCalculationTestCase(TestCase):
             email="mgr_avail@hotel.com",
             password="pass",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.guest = User.objects.create_user(
             username="guest_avail",
@@ -335,6 +337,7 @@ class PublicHotelViewsTestCase(TestCase):
             email="owner@hotel.com",
             password="pass",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.guest = User.objects.create_user(
             username="traveler",
@@ -586,6 +589,7 @@ class HotelFormsTestCase(TestCase):
             email="form_manager@hotel.com",
             password="securepassword123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -749,12 +753,14 @@ class ManagerHotelsViewsTestCase(TestCase):
             email="manager_a@hotel.com",
             password="securepassword123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.manager_b = User.objects.create_user(
             username="manager_b",
             email="manager_b@hotel.com",
             password="securepassword123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.guest = User.objects.create_user(
             username="guest_user",
@@ -1099,6 +1105,7 @@ class RecentHotelsAndCookiesTestCase(TestCase):
             email="owner_p307@hotel.com",
             password="pass",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.hotel1 = Hotel.objects.create(
             owner=self.manager,
@@ -1221,6 +1228,7 @@ class RoomTypeQuerySetAvailabilityTests(TestCase):
             email="p3_hotel_mgr@test.com",
             password="passWORD123!",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.guest = User.objects.create_user(
             username="p3_hotel_guest",
@@ -1391,6 +1399,7 @@ class RoomTypeQuerySetAvailabilityTests(TestCase):
             email="p3_other_hotel_mgr@test.com",
             password="passWORD123!",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         other_hotel = Hotel.objects.create(
             owner=other_mgr,
@@ -1434,12 +1443,14 @@ class HotelQuerySetTestCase(TestCase):
             email="m_qs1@example.com",
             password="password123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.manager2 = User.objects.create_user(
             username="manager_qs_2",
             email="m_qs2@example.com",
             password="password123",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
 
         self.hotel1 = Hotel.objects.create(
@@ -1560,6 +1571,7 @@ class GuestViewsManagerRefactorTests(TestCase):
             email="p304_mgr@example.com",
             password="passWORD123!",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.guest = User.objects.create_user(
             username="p304_guest",
@@ -1667,12 +1679,14 @@ class HotelLoggingCoverageTests(TestCase):
             email="hotel_log_mgr@example.com",
             password="StrongPassword123!",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.other_manager = User.objects.create_user(
             username="other_mgr",
             email="other_mgr@example.com",
             password="StrongPassword123!",
             role=User.Role.MANAGER,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             name="Log Test Hotel",
