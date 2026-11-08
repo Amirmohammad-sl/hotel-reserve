@@ -5,8 +5,8 @@
 | ۱. نمودار فرایندهای وب‌سایت | docs/PROCESS_DIAGRAMS.md → docs/report/diagrams | P1-02, P4-16 | تکمیل در فاز ۱ (P1-02) |
 | ۲. توضیح فرایندها به تفکیک وب‌اپلیکیشن | docs/report/process-per-app.md | P4-16 | آماده‌سازی اولیه در P1-01 و توسعه در فاز ۲ |
 | ۳. مدل‌ها و روابط بین آن‌ها | docs/DATA_MODEL.md → docs/report/models.md | P1-08, P4-16 | تکمیل در فاز ۱ (P1-08) |
-| ۴. معرفی Manager ها و دلیل تعریف | docs/report/managers.md | P3-11, P4-17 | موکول به فاز ۳ (P3-01..P3-04) |
+| ۴. معرفی Manager ها و دلیل تعریف | docs/report/managers.md | P3-11, P4-17 | تدوین کامل در فاز ۳ (P3-11) با جدول متدها، دلایل و مقایسه قبل/بعد |
 | ۵. معرفی View های تعریف‌شده | docs/report/views.md | P4-17 | پیاده‌سازی کامل ویوها و فرم‌ها در فاز ۲ (P2-01..P2-06) |
-| ضمیمه: تست‌ها، امتیازی‌ها، نحوه اجرا | docs/report/testing.md, bonuses.md, README | P4-05, P4-17 | ۱۶۹ تست بک‌اند، بیلد فرانت‌اند و seed_demo در فاز ۲ (P2-10, P2-12) |
+| ضمیمه: تست‌ها، امتیازی‌ها، نحوه اجرا | docs/report/testing.md, bonuses.md, README | P4-05, P4-17 | ۲۳۵ تست بک‌اند، بیلد فرانت‌اند، seed_demo و بکاپ دیتابیس در فاز ۳ (P3-11) |
 
 نسخه نهایی: از `docs/report/*.md` یک فایل Word/PDF بسازید (تسک P4-18). تولید هر بخش: `/report-section <name>`.

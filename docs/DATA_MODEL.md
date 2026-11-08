@@ -114,7 +114,7 @@ erDiagram
 ### 2.1 `accounts.User`
 - **Table Name:** `accounts_user`
 - **Base Class:** `django.contrib.auth.models.AbstractUser`
-- **Manager:** `apps.accounts.models.UserManager` (auto-assigns default roles)
+- **Manager:** pps.accounts.models.UserManager (auto-assigns default roles; provides UserQuerySet with .managers() and .guests())
 
 | Field | Django Type | DB / PostgreSQL Type | Null / Blank | Default | Constraints & Validators | Notes |
 |---|---|---|---|---|---|---|
@@ -159,6 +159,7 @@ erDiagram
 ### 2.3 `hotels.Hotel`
 - **Table Name:** `hotels_hotel`
 - **Purpose:** Hotel establishment registered and managed by a manager user.
+- **Manager / QuerySet:** pps.hotels.models.HotelQuerySet (provides .active(), .in_city(city), .owned_by(user), .with_min_price(), .priced_between(min, max))
 
 | Field | Django Type | DB / PostgreSQL Type | Null / Blank | Default | Constraints & Validators | Notes |
 |---|---|---|---|---|---|---|
