@@ -3044,3 +3044,125 @@ class BookingBusinessConcurrencyStressTests(TransactionTestCase):
         ).count()
         self.assertEqual(confirmed_count, 2)
 
+
+
+class BookingQueryOptimizationTests(TestCase):
+    """
+    Performance and query count regression tests for booking endpoints (P4-06).
+    Verifies elimination of N+1 database queries on list endpoints.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.manager = User.objects.create_user(
+            username="perf_manager",
+            email="perf_mgr@example.com",
+            password="password123",
+            role="manager",
+            email_verified=True,
+        )
+        self.guest = User.objects.create_user(
+            username="perf_guest",
+            email="perf_gst@example.com",
+            password="password123",
+            role="guest",
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            name="Perf Optimization Hotel",
+            city="Isfahan",
+            address="Perf Ave",
+            owner=self.manager,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=1500000,
+            quantity=10,
+        )
+
+    def test_manager_hotel_bookings_query_count_is_constant(self):
+        """
+        Verify manager_hotel_bookings_list_view executes O(1) queries regardless of bookings count.
+        Before optimization: select_related was missing room_type__hotel, resulting in 4 + N queries.
+        After optimization: exactly 4 queries total (2 session/user + 1 hotel check + 1 bookings join).
+        """
+        today = datetime.date.today()
+
+        # 1 booking baseline
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=today,
+            check_out=today + datetime.timedelta(days=2),
+            rooms_count=1,
+            guests_count=1,
+            price_per_night_snapshot=1500000,
+            subtotal=3000000,
+            discount_amount=0,
+            total_price=3000000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.manager)
+        url = reverse("bookings:manager_hotel_bookings", kwargs={"hotel_id": self.hotel.id})
+
+        with self.assertNumQueries(4):
+            res1 = self.client.get(url)
+            self.assertEqual(res1.status_code, 200)
+            self.assertEqual(len(res1.json()["data"]), 1)
+
+        # Create 4 additional bookings (total 5)
+        for i in range(1, 5):
+            Booking.objects.create(
+                guest=self.guest,
+                room_type=self.room_type,
+                check_in=today + datetime.timedelta(days=i * 3),
+                check_out=today + datetime.timedelta(days=i * 3 + 2),
+                rooms_count=1,
+                guests_count=1,
+                price_per_night_snapshot=1500000,
+                subtotal=3000000,
+                discount_amount=0,
+                total_price=3000000,
+                status=Booking.Status.CONFIRMED,
+            )
+
+        # Query count MUST STILL be exactly 4 queries with 5 bookings (no N+1!)
+        with self.assertNumQueries(4):
+            res5 = self.client.get(url)
+            self.assertEqual(res5.status_code, 200)
+            self.assertEqual(len(res5.json()["data"]), 5)
+
+    def test_guest_my_bookings_query_count_is_constant(self):
+        """
+        Verify my_bookings_list_view executes O(1) queries regardless of bookings count.
+        Before optimization: select_related was missing guest, resulting in 3 + N queries.
+        After optimization: exactly 3 queries total (2 session/user + 1 bookings join).
+        """
+        today = datetime.date.today()
+
+        # Create 5 bookings
+        for i in range(5):
+            Booking.objects.create(
+                guest=self.guest,
+                room_type=self.room_type,
+                check_in=today + datetime.timedelta(days=i * 3),
+                check_out=today + datetime.timedelta(days=i * 3 + 2),
+                rooms_count=1,
+                guests_count=1,
+                price_per_night_snapshot=1500000,
+                subtotal=3000000,
+                discount_amount=0,
+                total_price=3000000,
+                status=Booking.Status.CONFIRMED,
+            )
+
+        self.client.force_login(self.guest)
+        url = reverse("bookings:bookings-mine")
+
+        with self.assertNumQueries(3):
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(len(res.json()["data"]), 5)

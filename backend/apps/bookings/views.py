@@ -197,7 +197,7 @@ def my_bookings_list_view(request):
     """
     bookings = (
         Booking.objects.for_guest(request.user)
-        .select_related("room_type", "room_type__hotel", "discount_code")
+        .select_related("guest", "room_type", "room_type__hotel", "discount_code")
         .order_by("-created_at")
     )
     bookings_list = list(bookings)
@@ -215,7 +215,7 @@ def booking_cancel_view(request, booking_id):
     booking = (
         Booking.objects.for_guest(request.user)
         .filter(id=booking_id)
-        .select_related("room_type", "room_type__hotel", "discount_code")
+        .select_related("guest", "room_type", "room_type__hotel", "discount_code")
         .first()
     )
     if not booking:
@@ -343,7 +343,7 @@ def manager_hotel_bookings_list_view(request, hotel_id):
 
     bookings_qs = (
         Booking.objects.for_hotel(hotel)
-        .select_related("guest", "room_type", "discount_code")
+        .select_related("guest", "room_type", "room_type__hotel", "discount_code")
         .order_by("-created_at")
     )
 
