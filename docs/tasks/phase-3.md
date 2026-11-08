@@ -119,12 +119,12 @@
 - Depends: P3-04, P3-05, P3-08
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Same for B's apps.
 - Deliverables:
   - Events: quote, booking created/cancelled/conflict, discount applied/rejected, search (DEBUG), manager methods where useful.
 - DoD:
-  - [ ] Checklist table in journal; no secrets logged.
+  - [x] Checklist table in journal; no secrets logged.
 
 ### P3-11 · PHASE 3 GATE (joint)
 - Owner: AB
