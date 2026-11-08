@@ -1506,3 +1506,109 @@ class HotelQuerySetTestCase(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, self.hotel1.id)
         self.assertEqual(results[0].min_price, 100000)
+
+
+class GuestViewsManagerRefactorTests(TestCase):
+    """Verify that guest hotel views correctly use Hotel and RoomType managers (P3-04)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p304_mgr",
+            email="p304_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p304_guest",
+            email="p304_guest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Refactored Boutique Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            star_rating=5,
+            is_active=True,
+        )
+        self.rt_deluxe = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2_500_000,
+            quantity=3,
+        )
+        self.rt_standard = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1_500_000,
+            quantity=2,
+        )
+
+    def test_hotels_list_annotated_min_price_and_availability(self):
+        """hotels_list_view uses with_min_price and with_availability via Prefetch."""
+        today = timezone.localdate()
+        d_in = (today + timedelta(days=5)).strftime("%Y-%m-%d")
+        d_out = (today + timedelta(days=8)).strftime("%Y-%m-%d")
+
+        # Book 2 of 2 Standard rooms in range
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt_standard,
+            check_in=today + timedelta(days=5),
+            check_out=today + timedelta(days=8),
+            rooms_count=2,
+            guests_count=2,
+            price_per_night_snapshot=1_500_000,
+            subtotal=9_000_000,
+            total_price=9_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url, {"city": "Isfahan", "check_in": d_in, "check_out": d_out})
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 1)
+        hotel_data = data[0]
+        self.assertEqual(hotel_data["id"], self.hotel.id)
+        # min_price comes from with_min_price()
+        self.assertEqual(hotel_data["min_price"], 1_500_000)
+        self.assertTrue(hotel_data["available"])
+
+    def test_hotel_rooms_view_uses_roomtype_with_availability(self):
+        """hotel_rooms_view directly returns room availability annotated by RoomTypeQuerySet."""
+        today = timezone.localdate()
+        d_in = (today + timedelta(days=2)).strftime("%Y-%m-%d")
+        d_out = (today + timedelta(days=5)).strftime("%Y-%m-%d")
+
+        # Book 1 Deluxe room
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt_deluxe,
+            check_in=today + timedelta(days=2),
+            check_out=today + timedelta(days=5),
+            rooms_count=1,
+            guests_count=2,
+            price_per_night_snapshot=2_500_000,
+            subtotal=7_500_000,
+            total_price=7_500_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        url = reverse("hotels:hotel_rooms", kwargs={"hotel_id": self.hotel.id})
+        res = self.client.get(url, {"check_in": d_in, "check_out": d_out, "guests": 2})
+        self.assertEqual(res.status_code, 200)
+        rooms = res.json().get("data")
+        deluxe = next(r for r in rooms if r["id"] == self.rt_deluxe.id)
+        standard = next(r for r in rooms if r["id"] == self.rt_standard.id)
+
+        # Deluxe: quantity 3 - 1 reserved = 2 available
+        self.assertEqual(deluxe["available_count"], 2)
+        self.assertTrue(deluxe["available"])
+
+        # Standard: quantity 2 - 0 reserved = 2 available
+        self.assertEqual(standard["available_count"], 2)
+        self.assertTrue(standard["available"])

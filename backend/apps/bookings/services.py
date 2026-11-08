@@ -8,7 +8,6 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking, DiscountCode
 from apps.hotels.models import RoomType
-from apps.hotels.services import calculate_room_type_available_count
 
 
 class AvailabilityConflictError(Exception):
@@ -38,6 +37,10 @@ def validate_discount_code(
     if today is None:
         today = timezone.localdate()
 
+    valid_discount = DiscountCode.objects.get_valid(hotel=hotel, code=code, today=today)
+    if valid_discount:
+        return True, valid_discount, f"Discount code applied ({valid_discount.percent}% off)."
+
     normalized_code = code.strip().upper()
     discount = (
         DiscountCode.objects.filter(hotel=hotel, code=normalized_code)
@@ -59,7 +62,7 @@ def validate_discount_code(
     if discount.max_uses is not None and discount.used_count >= discount.max_uses:
         return False, discount, "Discount code has reached its maximum redemptions."
 
-    return True, discount, f"Discount code applied ({discount.percent}% off)."
+    return False, discount, "Discount code is not valid."
 
 
 def calculate_booking_quote(
@@ -83,11 +86,12 @@ def calculate_booking_quote(
     nights = (check_out - check_in).days
     subtotal = rooms_count * nights * room_type.price_per_night
 
-    available_count = calculate_room_type_available_count(
-        room_type=room_type,
-        check_in=check_in,
-        check_out=check_out,
+    room_type_with_avail = (
+        RoomType.objects.with_availability(check_in, check_out)
+        .filter(id=room_type.id)
+        .first()
     )
+    available_count = room_type_with_avail.available_count if room_type_with_avail else 0
     available = available_count >= rooms_count
 
     discount_amount = 0
