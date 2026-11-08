@@ -50,10 +50,12 @@ def quote_view(request):
     try:
         data = parse_json(request)
     except ValueError as exc:
+        logger.warning("Booking quote failed: invalid JSON payload from user_id=%s: %s", request.user.id, exc)
         return json_error(str(exc), status=400)
 
     form = BookingQuoteForm(data)
     if not form.is_valid():
+        logger.warning("Booking quote validation failed for user_id=%s: %s", request.user.id, form_errors(form))
         return json_error("Invalid booking parameters.", errors=form_errors(form), status=400)
 
     cleaned = form.cleaned_data
@@ -68,8 +70,19 @@ def quote_view(request):
         )
     except ValidationError as exc:
         errs = exc.message_dict if hasattr(exc, "message_dict") else {"__all__": [str(exc)]}
+        logger.warning("Booking quote calculation error for user_id=%s: %s", request.user.id, errs)
         return json_error("Invalid booking parameters.", errors=errs, status=400)
 
+    logger.debug(
+        "Booking quote generated: user_id=%s room_type_id=%s check_in=%s check_out=%s rooms=%d total_price=%d available=%s",
+        request.user.id,
+        cleaned["room_type"].id,
+        cleaned["check_in"],
+        cleaned["check_out"],
+        cleaned["rooms_count"],
+        quote["total_price"],
+        quote["available"],
+    )
     return json_ok(
         {
             "nights": quote["nights"],
@@ -93,16 +106,27 @@ def discount_validate_view(request):
     try:
         data = parse_json(request)
     except ValueError as exc:
+        logger.warning("Discount validate failed: invalid JSON payload from user_id=%s: %s", request.user.id, exc)
         return json_error(str(exc), status=400)
 
     form = DiscountValidateForm(data)
     if not form.is_valid():
+        logger.warning("Discount validate form error for user_id=%s: %s", request.user.id, form_errors(form))
         return json_error("Invalid parameters.", errors=form_errors(form), status=400)
 
     cleaned = form.cleaned_data
     is_valid, discount_obj, message = validate_discount_code(
         hotel=cleaned["hotel"],
         code=cleaned["code"],
+    )
+
+    logger.info(
+        "Discount validation completed: user_id=%s hotel_id=%s code='%s' valid=%s percent=%d",
+        request.user.id,
+        cleaned["hotel"].id,
+        cleaned["code"],
+        is_valid,
+        discount_obj.percent if (discount_obj and is_valid) else 0,
     )
 
     return json_ok(
@@ -127,10 +151,12 @@ def booking_create_view(request):
     try:
         data = parse_json(request)
     except ValueError as exc:
+        logger.warning("Booking create failed: invalid JSON payload from user_id=%s: %s", request.user.id, exc)
         return json_error(str(exc), status=400)
 
     form = BookingQuoteForm(data)
     if not form.is_valid():
+        logger.warning("Booking create validation failed for user_id=%s: %s", request.user.id, form_errors(form))
         return json_error("Invalid booking parameters.", errors=form_errors(form), status=400)
 
     cleaned = form.cleaned_data
@@ -145,11 +171,20 @@ def booking_create_view(request):
             discount_code=cleaned.get("discount_code"),
         )
     except AvailabilityConflictError as exc:
+        logger.warning("Booking create conflict for user_id=%s room_type_id=%s: %s", request.user.id, cleaned["room_type"].id, exc)
         return json_error(str(exc), status=409)
     except ValidationError as exc:
         errs = exc.message_dict if hasattr(exc, "message_dict") else {"__all__": [str(exc)]}
+        logger.warning("Booking create validation error for user_id=%s: %s", request.user.id, errs)
         return json_error("Invalid booking parameters.", errors=errs, status=400)
 
+    logger.info(
+        "Booking created successfully: booking_id=%s guest_id=%s room_type_id=%s total_price=%d",
+        booking.id,
+        request.user.id,
+        booking.room_type_id,
+        booking.total_price,
+    )
     return json_ok(booking_to_dict(booking), status=201)
 
 
@@ -165,7 +200,9 @@ def my_bookings_list_view(request):
         .select_related("room_type", "room_type__hotel", "discount_code")
         .order_by("-created_at")
     )
-    return json_ok([booking_to_dict(b) for b in bookings])
+    bookings_list = list(bookings)
+    logger.debug("Guest bookings listed: user_id=%s count=%d", request.user.id, len(bookings_list))
+    return json_ok([booking_to_dict(b) for b in bookings_list])
 
 
 @role_required("guest")
@@ -182,13 +219,16 @@ def booking_cancel_view(request, booking_id):
         .first()
     )
     if not booking:
+        security_logger.warning("Booking cancel denied or not found: booking_id=%s user_id=%s", booking_id, request.user.id)
         return json_error("Booking not found.", status=404)
 
     try:
         cancelled = cancel_booking(booking=booking, user=request.user)
     except BookingCancellationError as exc:
+        logger.warning("Booking cancel failed for booking_id=%s user_id=%s: %s", booking_id, request.user.id, exc)
         return json_error(str(exc), status=400)
 
+    logger.info("Booking cancelled by guest: booking_id=%s user_id=%s", cancelled.id, request.user.id)
     return json_ok(booking_to_dict(cancelled))
 
 
