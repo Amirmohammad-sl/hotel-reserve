@@ -187,12 +187,9 @@ class RoomTypeQuerySet(models.QuerySet):
         Booking = apps.get_model("bookings", "Booking")
 
         overlapping_bookings = (
-            Booking.objects.filter(
-                room_type=models.OuterRef("pk"),
-                status=Booking.Status.CONFIRMED,
-                check_in__lt=check_out,
-                check_out__gt=check_in,
-            )
+            Booking.objects.active()
+            .overlapping(check_in, check_out)
+            .filter(room_type=models.OuterRef("pk"))
             .values("room_type")
             .annotate(total_rooms=models.Sum("rooms_count"))
             .values("total_rooms")

@@ -157,7 +157,7 @@ def my_bookings_list_view(request):
     List all reservations booked by the current authenticated guest user.
     """
     bookings = (
-        Booking.objects.filter(guest=request.user)
+        Booking.objects.for_guest(request.user)
         .select_related("room_type", "room_type__hotel", "discount_code")
         .order_by("-created_at")
     )
@@ -172,7 +172,8 @@ def booking_cancel_view(request, booking_id):
     Cancel a confirmed reservation before check-in date and restore room availability.
     """
     booking = (
-        Booking.objects.filter(id=booking_id, guest=request.user)
+        Booking.objects.for_guest(request.user)
+        .filter(id=booking_id)
         .select_related("room_type", "room_type__hotel", "discount_code")
         .first()
     )

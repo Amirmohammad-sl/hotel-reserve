@@ -45,12 +45,12 @@
 - Depends: P3-01, P3-02, P2-05, P2-06
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Search/booking views use managers.
 - Deliverables:
   - search, rooms, quote, create-booking use `with_availability`, `valid_now`, etc.
 - DoD:
-  - [ ] Behaviour unchanged; smoke list passes.
+  - [x] Behaviour unchanged; smoke list passes.
 
 ### P3-05 · Concurrency-safe booking
 - Owner: B
