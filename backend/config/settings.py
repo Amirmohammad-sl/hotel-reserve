@@ -145,6 +145,18 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@hotel.local")
 FRONTEND_ORIGIN = env("FRONTEND_ORIGIN", default="http://localhost:5173")
 CSRF_TRUSTED_ORIGINS = [FRONTEND_ORIGIN]
 
+# Session and Cookie security configuration (P3-06)
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 1209600  # 14 days in seconds
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=not DEBUG)
+
+# CSRF Cookie security configuration
+CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read csrftoken for requests
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=not DEBUG)
+
 # Logging configuration (P3-08)
 LOG_LEVEL = env("LOG_LEVEL", default="INFO").upper()
 

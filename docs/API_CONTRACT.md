@@ -11,10 +11,10 @@ Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=p
 | POST | /api/auth/register/ | P | username,email,password,password2,role(guest/manager),phone? | user |
 | POST | /api/auth/login/ | P | username_or_email,password,remember_me? | user |
 | POST | /api/auth/logout/ | A | – | – |
-| GET | /api/auth/me/ | P | – | user or `{"data": null}` |
+| GET | /api/auth/me/ | P | – | user (includes session `last_login` timestamp when authenticated) or `{"data": null}` |
 | POST | /api/auth/verify-email/ | P | token | user |
 | POST | /api/auth/resend-verification/ | A | – | – |
-`user` = `{id, username, email, role, email_verified}`
+`user` = `{id, username, email, role, email_verified}` (and optional `last_login` ISO timestamp)
 
 ## Public / guest browsing (owner B; models by A)
 | Method | Path | Role | Notes |

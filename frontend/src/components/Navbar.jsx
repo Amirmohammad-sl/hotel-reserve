@@ -59,7 +59,10 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 text-sm text-gray-700">
+                <div
+                  className="flex items-center gap-2 text-sm text-gray-700"
+                  title={user.last_login ? `آخرین ورود: ${new Date(user.last_login).toLocaleString('fa-IR')}` : undefined}
+                >
                   <span className="font-medium text-gray-900">{user.username}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
                     {user.role === 'manager' ? 'مدیر هتل' : 'مهمان'}
@@ -151,11 +154,18 @@ export default function Navbar() {
           <div className="pt-3 border-t border-gray-100">
             {user ? (
               <div className="space-y-2">
-                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-900">{user.username}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                    {user.role === 'manager' ? 'مدیر هتل' : 'مهمان'}
-                  </span>
+                <div className="px-3 py-2 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900">{user.username}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      {user.role === 'manager' ? 'مدیر هتل' : 'مهمان'}
+                    </span>
+                  </div>
+                  {user.last_login && (
+                    <div className="text-[11px] text-gray-500 mt-1">
+                      آخرین ورود: {new Date(user.last_login).toLocaleString('fa-IR')}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"

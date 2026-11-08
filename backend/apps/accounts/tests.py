@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.contrib.sessions.models import Session
 import json
 from django.contrib.admin.sites import site
 from django.db import IntegrityError
@@ -453,18 +455,13 @@ class AuthViewsTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse("accounts:me"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "data": {
-                    "id": self.user.id,
-                    "username": "existingguest",
-                    "email": "existing@example.com",
-                    "role": "guest",
-                    "email_verified": False,
-                }
-            },
-        )
+        res_data = response.json()["data"]
+        self.assertEqual(res_data["id"], self.user.id)
+        self.assertEqual(res_data["username"], "existingguest")
+        self.assertEqual(res_data["email"], "existing@example.com")
+        self.assertEqual(res_data["role"], "guest")
+        self.assertEqual(res_data["email_verified"], False)
+        self.assertIn("last_login", res_data)
 
     def test_logout_view_unauthenticated_returns_401(self):
         response = self.client.post(reverse("accounts:logout"))
@@ -537,3 +534,98 @@ class AuthViewsTests(TestCase):
         # 7. /me/ returns null
         after_logout_me = self.client.get(reverse("accounts:me"))
         self.assertEqual(after_logout_me.json(), {"data": None})
+
+
+
+class SessionManagementTests(TestCase):
+    """Tests for course-required session management, cookie flags, and lifecycle (P3-06)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="session_tester",
+            email="session@example.com",
+            password="SecurePassword123!",
+        )
+
+    def test_session_engine_is_database_backed(self):
+        self.assertEqual(settings.SESSION_ENGINE, "django.contrib.sessions.backends.db")
+        self.assertTrue(settings.SESSION_COOKIE_HTTPONLY)
+        self.assertEqual(settings.SESSION_COOKIE_SAMESITE, "Lax")
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 1209600)
+
+    def test_login_stores_last_login_in_session_and_me_returns_it(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        session_last_login = self.client.session.get("last_login")
+        self.assertIsNotNone(session_last_login)
+        self.assertEqual(response.json()["data"]["last_login"], session_last_login)
+
+        # GET /api/auth/me/ returns session last_login
+        me_res = self.client.get(reverse("accounts:me"))
+        self.assertEqual(me_res.status_code, 200)
+        self.assertEqual(me_res.json()["data"]["last_login"], session_last_login)
+
+    def test_logout_flushes_session_from_database(self):
+        # 1. Login to create database session
+        login_res = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        session_key = self.client.session.session_key
+        self.assertIsNotNone(session_key)
+        self.assertTrue(Session.objects.filter(session_key=session_key).exists())
+
+        # 2. Logout flushes session
+        logout_res = self.client.post(reverse("accounts:logout"))
+        self.assertEqual(logout_res.status_code, 200)
+
+        # 3. Session key no longer exists in DB
+        self.assertFalse(Session.objects.filter(session_key=session_key).exists())
+
+        # 4. /me/ returns null
+        me_res = self.client.get(reverse("accounts:me"))
+        self.assertEqual(me_res.json(), {"data": None})
+
+    def test_cookie_flags_in_response(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
+        cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Lax")
+        self.assertEqual(cookie["max-age"], 1209600)
+
+    def test_remember_me_false_session_cookie(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": False,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
