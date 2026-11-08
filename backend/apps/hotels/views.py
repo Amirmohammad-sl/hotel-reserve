@@ -5,7 +5,7 @@ import urllib.parse
 from django.db.models import Prefetch, Q
 from django.views.decorators.http import require_GET
 
-from apps.core.decorators import role_required
+from apps.core.decorators import role_required, verified_required
 from apps.core.forms import form_errors
 from apps.core.http import json_error, json_ok, parse_json
 from apps.hotels.forms import (
@@ -358,6 +358,7 @@ def amenities_list_view(request):
 
 
 @role_required("manager")
+@verified_required(methods=["POST"])
 def manager_hotels_list_create_view(request):
     """List manager's own hotels (GET) or create a new hotel (POST)."""
     if request.method == "GET":
