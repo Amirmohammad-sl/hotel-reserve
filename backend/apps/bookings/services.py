@@ -131,15 +131,28 @@ def create_booking(
     discount_code: Optional[str] = None,
 ) -> Booking:
     """
-    Create a confirmed booking atomically.
+    Create a confirmed booking atomically with pessimistic concurrency protection.
+
+    Serializes concurrent booking requests for the same room type using
+    `select_for_update()` on the RoomType row to prevent overbooking races.
 
     Raises:
         AvailabilityConflictError: if requested rooms are not available (yields 409).
         ValidationError: if discount code is invalid or dates are invalid.
     """
     with transaction.atomic():
+        locked_room_type = RoomType.objects.select_for_update().get(id=room_type.id)
+
+        # Also lock the discount code row if supplied to prevent race on max_uses
+        if discount_code:
+            code_str = discount_code.strip().upper()
+            DiscountCode.objects.select_for_update().filter(
+                hotel=locked_room_type.hotel,
+                code=code_str,
+            ).first()
+
         quote = calculate_booking_quote(
-            room_type=room_type,
+            room_type=locked_room_type,
             check_in=check_in,
             check_out=check_out,
             rooms_count=rooms_count,
@@ -154,6 +167,9 @@ def create_booking(
 
         discount_obj = quote["discount_obj"]
         if discount_obj:
+            if discount_obj.max_uses is not None and discount_obj.used_count >= discount_obj.max_uses:
+                raise ValidationError({"discount_code": "Discount code has reached its maximum redemptions."})
+
             DiscountCode.objects.filter(id=discount_obj.id).update(
                 used_count=models.F("used_count") + 1
             )
@@ -161,13 +177,13 @@ def create_booking(
 
         booking = Booking.objects.create(
             guest=guest,
-            room_type=room_type,
+            room_type=locked_room_type,
             check_in=check_in,
             check_out=check_out,
             rooms_count=rooms_count,
             guests_count=guests_count,
             nights=quote["nights"],
-            price_per_night_snapshot=room_type.price_per_night,
+            price_per_night_snapshot=locked_room_type.price_per_night,
             subtotal=quote["subtotal"],
             discount_code=discount_obj,
             discount_amount=quote["discount_amount"],
@@ -185,26 +201,34 @@ def cancel_booking(booking: Booking, user) -> Booking:
         BookingCancellationError: if booking cannot be cancelled.
     """
     with transaction.atomic():
-        if booking.guest_id != user.id:
+        locked_booking = (
+            Booking.objects.select_for_update()
+            .filter(id=booking.id)
+            .first()
+        )
+        if not locked_booking:
+            raise BookingCancellationError("Booking not found.")
+
+        if locked_booking.guest_id != user.id:
             raise BookingCancellationError("You do not have permission to cancel this booking.")
 
-        if booking.status != Booking.Status.CONFIRMED:
+        if locked_booking.status != Booking.Status.CONFIRMED:
             raise BookingCancellationError("Booking is already cancelled.")
 
         today = timezone.localdate()
-        if booking.check_in <= today:
+        if locked_booking.check_in <= today:
             raise BookingCancellationError("Cannot cancel a booking on or after the check-in date.")
 
-        booking.status = Booking.Status.CANCELLED
-        booking.cancelled_at = timezone.now()
-        booking.save(update_fields=["status", "cancelled_at"])
+        locked_booking.status = Booking.Status.CANCELLED
+        locked_booking.cancelled_at = timezone.now()
+        locked_booking.save(update_fields=["status", "cancelled_at"])
 
-        if booking.discount_code_id:
+        if locked_booking.discount_code_id:
             DiscountCode.objects.filter(
-                id=booking.discount_code_id,
+                id=locked_booking.discount_code_id,
                 used_count__gt=0,
             ).update(used_count=models.F("used_count") - 1)
-            if booking.discount_code:
-                booking.discount_code.refresh_from_db()
+            if locked_booking.discount_code:
+                locked_booking.discount_code.refresh_from_db()
 
-        return booking
+        return locked_booking

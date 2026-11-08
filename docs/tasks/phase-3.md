@@ -57,12 +57,12 @@
 - Depends: P3-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Two guests can't overbook the last room.
 - Deliverables:
   - `transaction.atomic()` + `select_for_update()` on the RoomType row while checking availability and creating the booking; `used_count` update in same transaction (use `F()`).
 - DoD:
-  - [ ] Test with two threads/`TransactionTestCase` or documented manual test; explanation in journal.
+  - [x] Test with two threads/`TransactionTestCase` or documented manual test; explanation in journal.
 
 ### P3-06 · Session management
 - Owner: A
