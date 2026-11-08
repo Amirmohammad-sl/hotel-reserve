@@ -1,11 +1,12 @@
 import datetime
 import json
+import threading
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1923,3 +1924,160 @@ class GuestBookingManagerRefactorTests(TestCase):
         self.client.force_login(self.guest2)
         res3 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
         self.assertEqual(res3.status_code, 201)
+
+
+class BookingConcurrencyTests(TransactionTestCase):
+    """
+    P3-05: Concurrency and race condition tests for booking creation and discounts.
+    Verifies that pessimistic locking (select_for_update) inside transaction.atomic
+    serializes simultaneous requests and prevents overbooking of the last available room.
+    """
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="concurrent_mgr",
+            email="conc_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest_a = User.objects.create_user(
+            username="concurrent_guest_a",
+            email="conc_a@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.guest_b = User.objects.create_user(
+            username="concurrent_guest_b",
+            email="conc_b@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Concurrency Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            star_rating=5,
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Single Only Room",
+            price_per_night=1_000_000,
+            quantity=1,
+            capacity=2,
+        )
+
+    def test_concurrent_booking_prevents_overbooking_last_room(self):
+        """
+        Two guests simultaneously attempt to book the last remaining room (quantity=1)
+        for identical overlapping dates.
+        Pessimistic locking must ensure exactly 1 booking succeeds and 1 fails with AvailabilityConflictError.
+        """
+        today = timezone.localdate()
+        check_in = today + datetime.timedelta(days=10)
+        check_out = today + datetime.timedelta(days=12)
+
+        results = []
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def attempt_booking(guest):
+            try:
+                barrier.wait(timeout=5)
+                booking = create_booking(
+                    guest=guest,
+                    room_type=self.room_type,
+                    check_in=check_in,
+                    check_out=check_out,
+                    rooms_count=1,
+                    guests_count=1,
+                )
+                results.append(booking)
+            except AvailabilityConflictError as exc:
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        thread_a = threading.Thread(target=attempt_booking, args=(self.guest_a,))
+        thread_b = threading.Thread(target=attempt_booking, args=(self.guest_b,))
+
+        thread_a.start()
+        thread_b.start()
+
+        thread_a.join(timeout=10)
+        thread_b.join(timeout=10)
+
+        # Invariants: Exactly 1 succeeded, exactly 1 failed with conflict error
+        self.assertEqual(len(results), 1, f"Expected 1 success, got {len(results)}")
+        self.assertEqual(len(errors), 1, f"Expected 1 error, got {len(errors)}")
+        self.assertIsInstance(errors[0], AvailabilityConflictError)
+
+        # Database invariant: Only 1 confirmed booking exists for this room type
+        confirmed_count = Booking.objects.filter(
+            room_type=self.room_type,
+            status=Booking.Status.CONFIRMED,
+        ).count()
+        self.assertEqual(confirmed_count, 1)
+
+    def test_concurrent_discount_code_max_uses_limit(self):
+        """
+        Two guests simultaneously book with a discount code that has max_uses=1.
+        Pessimistic locking must guarantee that used_count never exceeds max_uses.
+        """
+        multi_room = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Multi Room",
+            price_per_night=1_000_000,
+            quantity=5,
+            capacity=2,
+        )
+        today = timezone.localdate()
+        discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="ONCEONLY",
+            percent=20,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=10),
+            max_uses=1,
+            is_active=True,
+        )
+
+        check_in = today + datetime.timedelta(days=15)
+        check_out = today + datetime.timedelta(days=17)
+
+        results = []
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def attempt_booking_with_discount(guest):
+            try:
+                barrier.wait(timeout=5)
+                booking = create_booking(
+                    guest=guest,
+                    room_type=multi_room,
+                    check_in=check_in,
+                    check_out=check_out,
+                    rooms_count=1,
+                    guests_count=1,
+                    discount_code="ONCEONLY",
+                )
+                results.append(booking)
+            except ValidationError as exc:
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        thread_a = threading.Thread(target=attempt_booking_with_discount, args=(self.guest_a,))
+        thread_b = threading.Thread(target=attempt_booking_with_discount, args=(self.guest_b,))
+
+        thread_a.start()
+        thread_b.start()
+
+        thread_a.join(timeout=10)
+        thread_b.join(timeout=10)
+
+        discount.refresh_from_db()
+        self.assertEqual(discount.used_count, 1, f"used_count should be 1, got {discount.used_count}")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
