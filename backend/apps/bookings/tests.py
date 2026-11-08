@@ -2081,3 +2081,188 @@ class BookingConcurrencyTests(TransactionTestCase):
         self.assertEqual(discount.used_count, 1, f"used_count should be 1, got {discount.used_count}")
         self.assertEqual(len(results), 1)
         self.assertEqual(len(errors), 1)
+
+
+
+class BookingsLoggingCoverageTests(TestCase):
+    """Unit tests verifying logging coverage for bookings, reviews, and managers."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="log_mgr",
+            email="log_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="log_guest",
+            email="log_guest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Logging Grand Hotel",
+            city="Shiraz",
+            address="Zand Blvd",
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=1,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="LOGDISC20",
+            percent=20,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=10),
+            max_uses=5,
+        )
+        self.check_in = today + datetime.timedelta(days=10)
+        self.check_out = today + datetime.timedelta(days=13)
+
+    def test_quote_view_and_service_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": self.check_in.isoformat(),
+            "check_out": self.check_out.isoformat(),
+            "rooms_count": 1,
+            "guests_count": 2,
+            "discount_code": "LOGDISC20",
+        }
+        with self.assertLogs("apps.bookings.services", level="DEBUG") as svc_logs:
+            res = self.client.post(
+                reverse("bookings:quote"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Quote calculated" in msg for msg in svc_logs.output))
+
+    def test_quote_view_validation_error_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": "invalid-date",
+            "check_out": self.check_out.isoformat(),
+        }
+        with self.assertLogs("apps.bookings.views", level="WARNING") as view_logs:
+            res = self.client.post(
+                reverse("bookings:quote"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(any("Booking quote validation failed" in msg for msg in view_logs.output))
+
+    def test_discount_validate_view_and_service_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "hotel": self.hotel.id,
+            "code": "LOGDISC20",
+        }
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(
+                    reverse("bookings:discount-validate"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Discount code applied" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Discount validation completed" in msg for msg in view_logs.output))
+
+    def test_discount_rejected_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "hotel": self.hotel.id,
+            "code": "UNKNOWN_CODE",
+        }
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            res = self.client.post(
+                reverse("bookings:discount-validate"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Discount code rejected" in msg for msg in svc_logs.output))
+
+    def test_booking_create_and_conflict_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": self.check_in.isoformat(),
+            "check_out": self.check_out.isoformat(),
+            "rooms_count": 1,
+            "guests_count": 2,
+        }
+        # First booking succeeds
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(
+                    reverse("bookings:booking-create"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(any("Booking created" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Booking created successfully" in msg for msg in view_logs.output))
+
+        # Second booking conflicts (quantity=1 is already booked)
+        with self.assertLogs("apps.bookings.services", level="WARNING") as conflict_logs:
+            with self.assertLogs("apps.bookings.views", level="WARNING") as view_conflict_logs:
+                res_conflict = self.client.post(
+                    reverse("bookings:booking-create"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res_conflict.status_code, 409)
+        self.assertTrue(any("Booking conflict" in msg for msg in conflict_logs.output))
+        self.assertTrue(any("Booking create conflict" in msg for msg in view_conflict_logs.output))
+
+    def test_my_bookings_list_logging(self):
+        self.client.force_login(self.guest)
+        with self.assertLogs("apps.bookings.views", level="DEBUG") as view_logs:
+            res = self.client.get(reverse("bookings:bookings-mine"))
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Guest bookings listed" in msg for msg in view_logs.output))
+
+    def test_booking_cancel_logging(self):
+        self.client.force_login(self.guest)
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=self.check_in,
+            check_out=self.check_out,
+            rooms_count=1,
+            guests_count=1,
+            discount_code="LOGDISC20",
+        )
+        url = reverse("bookings:booking-cancel", kwargs={"booking_id": booking.id})
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Booking cancelled successfully" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Booking cancelled by guest" in msg for msg in view_logs.output))
+
+    def test_booking_cancel_security_and_error_logging(self):
+        self.client.force_login(self.guest)
+        # Cancel non-existent booking
+        bad_url = reverse("bookings:booking-cancel", kwargs={"booking_id": 999999})
+        with self.assertLogs("apps.security", level="WARNING") as sec_logs:
+            res = self.client.post(bad_url)
+        self.assertEqual(res.status_code, 404)
+        self.assertTrue(any("Booking cancel denied or not found" in msg for msg in sec_logs.output))
+
+    def test_manager_methods_logging(self):
+        with self.assertLogs("apps.bookings.models", level="DEBUG") as model_logs:
+            Booking.objects.overlapping(self.check_in, self.check_out)
+            DiscountCode.objects.get_valid(self.hotel, "LOGDISC20")
+        self.assertTrue(any("BookingQuerySet.overlapping queried" in msg for msg in model_logs.output))
+        self.assertTrue(any("DiscountCodeQuerySet.get_valid queried" in msg for msg in model_logs.output))
