@@ -43,12 +43,12 @@
 - Depends: P3-02, P3-04, P3-05
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Project tests part 2 (the business core).
 - Deliverables:
   - Tests: overlap edge cases, same-day turnover, capacity, discount rules (expired, max uses, wrong hotel), cancel frees rooms, quote equals booking total, concurrency test if feasible.
 - DoD:
-  - [ ] Green; coverage of bookings ≥ 80%.
+  - [x] Green; coverage of bookings ≥ 80%.
 
 ### P4-05 · Tests: API integration + frontend smoke
 - Owner: B
