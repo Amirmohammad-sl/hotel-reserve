@@ -187,12 +187,9 @@ class RoomTypeQuerySet(models.QuerySet):
         Booking = apps.get_model("bookings", "Booking")
 
         overlapping_bookings = (
-            Booking.objects.filter(
-                room_type=models.OuterRef("pk"),
-                status=Booking.Status.CONFIRMED,
-                check_in__lt=check_out,
-                check_out__gt=check_in,
-            )
+            Booking.objects.active()
+            .overlapping(check_in, check_out)
+            .filter(room_type=models.OuterRef("pk"))
             .values("room_type")
             .annotate(total_rooms=models.Sum("rooms_count"))
             .values("total_rooms")
@@ -222,6 +219,22 @@ class RoomTypeQuerySet(models.QuerySet):
         return self.with_availability(check_in, check_out).filter(
             available_count__gte=rooms_count
         )
+
+    def for_hotel(self, hotel):
+        """Filter room types belonging to a specific hotel instance or hotel ID.
+
+        WHY: Encapsulates hotel scoping for room types across manager and guest views.
+        """
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(hotel_id=hotel_id)
+
+    def owned_by(self, user):
+        """Filter room types belonging to hotels owned by the specified manager user.
+
+        WHY: Enforces manager-level multi-tenancy and data isolation for room type CRUD,
+        preventing foreign managers from viewing, altering, or deleting room types.
+        """
+        return self.filter(hotel__owner=user)
 
 
 class RoomType(models.Model):

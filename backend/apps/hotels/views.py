@@ -1,11 +1,9 @@
 """Hotel views for public search/detail and manager CRUD operations."""
 
 import urllib.parse
-from collections import defaultdict
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.views.decorators.http import require_GET
 
-from apps.bookings.models import Booking
 from apps.core.decorators import role_required
 from apps.core.forms import form_errors
 from apps.core.http import json_error, json_ok, parse_json
@@ -19,14 +17,13 @@ from apps.hotels.forms import (
     room_type_to_dict,
 )
 from apps.hotels.models import Amenity, Hotel, RoomType
-from apps.hotels.services import calculate_room_type_available_count
 
 
 @require_GET
 def cities_list_view(request):
     """Return distinct cities of active hotels."""
     cities = list(
-        Hotel.objects.filter(is_active=True)
+        Hotel.objects.active()
         .values_list("city", flat=True)
         .distinct()
         .order_by("city")
@@ -50,10 +47,17 @@ def hotels_list_view(request):
     max_price = cleaned.get("max_price")
     q = cleaned.get("q")
 
-    hotels_qs = Hotel.objects.filter(is_active=True).prefetch_related("room_types")
+    room_types_prefetch = Prefetch(
+        "room_types",
+        queryset=RoomType.objects.with_availability(check_in, check_out).prefetch_related("amenities"),
+    )
 
-    if city:
-        hotels_qs = hotels_qs.filter(city__iexact=city.strip())
+    hotels_qs = (
+        Hotel.objects.active()
+        .in_city(city)
+        .with_min_price()
+        .prefetch_related(room_types_prefetch)
+    )
 
     if q:
         query_val = q.strip()
@@ -67,19 +71,6 @@ def hotels_list_view(request):
     hotels_list = list(hotels_qs)
     if not hotels_list:
         return json_ok([])
-
-    all_room_types = [rt for h in hotels_list for rt in h.room_types.all()]
-
-    bookings_by_room = defaultdict(list)
-    if check_in and check_out and all_room_types:
-        bookings = Booking.objects.filter(
-            room_type__in=all_room_types,
-            status=Booking.Status.CONFIRMED,
-            check_in__lt=check_out,
-            check_out__gt=check_in,
-        )
-        for b in bookings:
-            bookings_by_room[b.room_type_id].append(b)
 
     results = []
     for hotel in hotels_list:
@@ -102,8 +93,7 @@ def hotels_list_view(request):
                 )
             continue
 
-        prices = [rt.price_per_night for rt in rts]
-        hotel_min_price = min(prices) if prices else None
+        hotel_min_price = hotel.min_price
 
         # Filter room types by capacity and price
         matching_room_types = []
@@ -116,13 +106,7 @@ def hotels_list_view(request):
                 continue
 
             if check_in and check_out:
-                avail_count = calculate_room_type_available_count(
-                    rt,
-                    check_in,
-                    check_out,
-                    bookings_by_room[rt.id],
-                )
-                if avail_count >= 1:
+                if rt.available_count >= 1:
                     matching_room_types.append(rt)
             else:
                 matching_room_types.append(rt)
@@ -170,7 +154,9 @@ def recent_hotels_view(request):
         return json_ok([])
 
     hotels = (
-        Hotel.objects.filter(id__in=recent_ids, is_active=True)
+        Hotel.objects.active()
+        .filter(id__in=recent_ids)
+        .with_min_price()
         .prefetch_related("room_types")
     )
     hotels_by_id = {h.id: h for h in hotels}
@@ -180,9 +166,6 @@ def recent_hotels_view(request):
         hotel = hotels_by_id.get(hid)
         if not hotel:
             continue
-        rts = hotel.room_types.all()
-        prices = [rt.price_per_night for rt in rts]
-        min_price = min(prices) if prices else None
         results.append(
             {
                 "id": hotel.id,
@@ -192,7 +175,7 @@ def recent_hotels_view(request):
                 "description": hotel.description,
                 "star_rating": hotel.star_rating,
                 "image_url": hotel.image_url,
-                "min_price": min_price,
+                "min_price": hotel.min_price,
                 "available": True,
             }
         )
@@ -204,7 +187,8 @@ def recent_hotels_view(request):
 def hotel_detail_view(request, hotel_id):
     """Return hotel detail with room types and amenities."""
     hotel = (
-        Hotel.objects.filter(id=hotel_id, is_active=True)
+        Hotel.objects.active()
+        .filter(id=hotel_id)
         .prefetch_related("room_types__amenities")
         .first()
     )
@@ -253,7 +237,7 @@ def hotel_detail_view(request, hotel_id):
 @require_GET
 def hotel_rooms_view(request, hotel_id):
     """Return room types of a hotel with available_count for given dates and guests."""
-    hotel = Hotel.objects.filter(id=hotel_id, is_active=True).first()
+    hotel = Hotel.objects.active().filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found", status=404)
 
@@ -265,27 +249,15 @@ def hotel_rooms_view(request, hotel_id):
     check_out = form.cleaned_data.get("check_out")
     guests = form.cleaned_data.get("guests") or 1
 
-    room_types = list(hotel.room_types.prefetch_related("amenities").all())
-
-    bookings_by_room = defaultdict(list)
-    if check_in and check_out and room_types:
-        bookings = Booking.objects.filter(
-            room_type__in=room_types,
-            status=Booking.Status.CONFIRMED,
-            check_in__lt=check_out,
-            check_out__gt=check_in,
-        )
-        for b in bookings:
-            bookings_by_room[b.room_type_id].append(b)
+    room_types = (
+        hotel.room_types.with_availability(check_in, check_out)
+        .prefetch_related("amenities")
+        .all()
+    )
 
     rooms_data = []
     for rt in room_types:
-        avail_count = calculate_room_type_available_count(
-            rt,
-            check_in,
-            check_out,
-            bookings_by_room[rt.id],
-        )
+        avail_count = rt.available_count
         is_available = avail_count >= 1 and rt.capacity >= guests
 
         rooms_data.append(
@@ -304,6 +276,8 @@ def hotel_rooms_view(request, hotel_id):
                 ],
             }
         )
+
+    return json_ok(rooms_data)
 
     return json_ok(rooms_data)
 
@@ -364,7 +338,7 @@ def amenities_list_view(request):
 def manager_hotels_list_create_view(request):
     """List manager's own hotels (GET) or create a new hotel (POST)."""
     if request.method == "GET":
-        hotels = Hotel.objects.filter(owner=request.user).order_by("-created_at")
+        hotels = Hotel.objects.owned_by(request.user)
         return json_ok([hotel_to_dict(h) for h in hotels])
 
     if request.method == "POST":
@@ -388,7 +362,7 @@ def manager_hotels_list_create_view(request):
 @role_required("manager")
 def manager_hotel_detail_update_delete_view(request, hotel_id):
     """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
@@ -418,14 +392,14 @@ def manager_hotel_detail_update_delete_view(request, hotel_id):
 @role_required("manager")
 def manager_room_types_list_create_view(request, hotel_id):
     """List room types (GET) or create a room type (POST) for a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
     if request.method == "GET":
         room_types = (
-            hotel.room_types.prefetch_related("amenities")
-            .all()
+            RoomType.objects.for_hotel(hotel)
+            .prefetch_related("amenities")
             .order_by("price_per_night")
         )
         return json_ok([room_type_to_dict(rt) for rt in room_types])
@@ -450,9 +424,10 @@ def manager_room_types_list_create_view(request, hotel_id):
 def manager_room_type_detail_update_delete_view(request, room_type_id):
     """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own room type."""
     room_type = (
-        RoomType.objects.select_related("hotel")
+        RoomType.objects.owned_by(request.user)
+        .select_related("hotel")
         .prefetch_related("amenities")
-        .filter(id=room_type_id, hotel__owner=request.user)
+        .filter(id=room_type_id)
         .first()
     )
     if not room_type:

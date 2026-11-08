@@ -391,10 +391,8 @@ class BookingAdminTests(TestCase):
 
 
 
-# ===========================================================================
-# P2-06: Forms, Services, Views and DoD Test Suites
-# ===========================================================================
-
+# ====================================================================# P2-06: Forms, Services, Views and DoD Test Suites
+# ====================================================================
 import json
 from django.utils import timezone
 from apps.bookings.forms import BookingQuoteForm, DiscountValidateForm, booking_to_dict
@@ -408,10 +406,8 @@ from apps.bookings.services import (
 )
 
 
-# ===========================================================================
-# Manager Tests (P2-04)
-# ===========================================================================
-
+# ====================================================================# Manager Tests (P2-04)
+# ====================================================================
 class DiscountCodeFormAndSerializerTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
@@ -998,10 +994,8 @@ class ManagerAvailabilityViewTests(TestCase):
                 self.assertEqual(daily[idx]["free"], exp["free"])
 
 
-# ===========================================================================
-# Guest Booking Tests (P2-06)
-# ===========================================================================
-
+# ====================================================================# Guest Booking Tests (P2-06)
+# ====================================================================
 class BookingFormsTestCase(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
@@ -1460,10 +1454,8 @@ class BookingDoDTestCase(TestCase):
 
 
 
-# ===========================================================================
-# P3-02: BookingQuerySet and DiscountCodeManager Test Suites
-# ===========================================================================
-
+# ====================================================================# P3-02: BookingQuerySet and DiscountCodeManager Test Suites
+# ====================================================================
 
 class BookingQuerySetAndDiscountManagerTests(TestCase):
     """Test suite for BookingQuerySet and DiscountCodeManager domain queries (P3-02)."""
@@ -1768,3 +1760,166 @@ class BookingQuerySetAndDiscountManagerTests(TestCase):
         self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "", today=today))
         # Wrong hotel
         self.assertIsNone(DiscountCode.objects.get_valid(self.other_hotel, "SUMMER20", today=today))
+
+    def test_discount_code_for_hotel_and_owned_by(self):
+        """DiscountCodeQuerySet.for_hotel and .owned_by scope discount codes correctly (P3-03)."""
+        dc1 = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SUMMER20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 8, 31),
+        )
+        dc2 = DiscountCode.objects.create(
+            hotel=self.other_hotel,
+            code="AUTUMN15",
+            percent=15,
+            valid_from=datetime.date(2026, 9, 1),
+            valid_to=datetime.date(2026, 11, 30),
+        )
+
+        hotel_dcs = DiscountCode.objects.for_hotel(self.hotel)
+        self.assertIn(dc1, hotel_dcs)
+        self.assertNotIn(dc2, hotel_dcs)
+
+        hotel_dcs_id = DiscountCode.objects.for_hotel(self.hotel.id)
+        self.assertIn(dc1, hotel_dcs_id)
+        self.assertNotIn(dc2, hotel_dcs_id)
+
+        mgr_dcs = DiscountCode.objects.owned_by(self.manager)
+        self.assertIn(dc1, mgr_dcs)
+        self.assertNotIn(dc2, mgr_dcs)
+
+        other_mgr_dcs = DiscountCode.objects.owned_by(self.other_manager)
+        self.assertIn(dc2, other_mgr_dcs)
+        self.assertNotIn(dc1, other_mgr_dcs)
+
+
+class GuestBookingManagerRefactorTests(TestCase):
+    """Verify that guest booking flow views and services utilize managers correctly (P3-04)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p304_b_mgr",
+            email="p304_b_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest1 = User.objects.create_user(
+            username="p304_guest1",
+            email="p304_g1@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.guest2 = User.objects.create_user(
+            username="p304_guest2",
+            email="p304_g2@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Manager Booking Hotel",
+            city="Shiraz",
+            address="Eram St",
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Executive Suite",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=1,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SPRING10",
+            percent=10,
+            valid_from=today - datetime.timedelta(days=5),
+            valid_to=today + datetime.timedelta(days=30),
+            max_uses=5,
+            used_count=0,
+            is_active=True,
+        )
+
+    def test_quote_view_with_managers(self):
+        """quote_view calculates availability and applies discount using managers."""
+        self.client.force_login(self.guest1)
+        today = timezone.localdate()
+        d_in = (today + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        d_out = (today + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+
+        url = reverse("bookings:quote")
+        res = self.client.post(
+            url,
+            data=json.dumps(
+                {
+                    "room_type": self.room_type.id,
+                    "check_in": d_in,
+                    "check_out": d_out,
+                    "rooms_count": 1,
+                    "guests_count": 2,
+                    "discount_code": "spring10",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["nights"], 2)
+        self.assertEqual(data["subtotal"], 4_000_000)
+        self.assertEqual(data["discount_amount"], 400_000)
+        self.assertEqual(data["total_price"], 3_600_000)
+        self.assertTrue(data["available"])
+
+    def test_booking_create_conflict_and_cancel_flow(self):
+        """End-to-end booking create, 409 conflict, and cancellation using managers."""
+        self.client.force_login(self.guest1)
+        today = timezone.localdate()
+        d_in = (today + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+        d_out = (today + datetime.timedelta(days=5)).strftime("%Y-%m-%d")
+
+        create_url = reverse("bookings:booking-create")
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": d_in,
+            "check_out": d_out,
+            "rooms_count": 1,
+            "guests_count": 2,
+            "discount_code": "SPRING10",
+        }
+
+        # Guest 1 books the only available room
+        res1 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res1.status_code, 201)
+        b1_id = res1.json().get("data")["id"]
+
+        # Guest 2 tries to book the same room for overlapping dates -> 409 Conflict
+        self.client.force_login(self.guest2)
+        res2 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res2.status_code, 409)
+
+        # Guest 2 checks 'my bookings' -> must be empty (isolated via for_guest)
+        mine_url = reverse("bookings:bookings-mine")
+        res_mine2 = self.client.get(mine_url)
+        self.assertEqual(res_mine2.status_code, 200)
+        self.assertEqual(len(res_mine2.json().get("data")), 0)
+
+        # Guest 1 checks 'my bookings' -> sees booking b1
+        self.client.force_login(self.guest1)
+        res_mine1 = self.client.get(mine_url)
+        self.assertEqual(res_mine1.status_code, 200)
+        self.assertEqual(len(res_mine1.json().get("data")), 1)
+        self.assertEqual(res_mine1.json().get("data")[0]["id"], b1_id)
+
+        # Guest 1 cancels the booking -> frees room
+        cancel_url = reverse("bookings:booking-cancel", kwargs={"booking_id": b1_id})
+        res_cancel = self.client.post(cancel_url)
+        self.assertEqual(res_cancel.status_code, 200)
+        self.assertEqual(res_cancel.json().get("data")["status"], "cancelled")
+
+        # Now Guest 2 retries booking -> succeeds (201)
+        self.client.force_login(self.guest2)
+        res3 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res3.status_code, 201)

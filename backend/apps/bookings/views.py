@@ -157,7 +157,7 @@ def my_bookings_list_view(request):
     List all reservations booked by the current authenticated guest user.
     """
     bookings = (
-        Booking.objects.filter(guest=request.user)
+        Booking.objects.for_guest(request.user)
         .select_related("room_type", "room_type__hotel", "discount_code")
         .order_by("-created_at")
     )
@@ -172,7 +172,8 @@ def booking_cancel_view(request, booking_id):
     Cancel a confirmed reservation before check-in date and restore room availability.
     """
     booking = (
-        Booking.objects.filter(id=booking_id, guest=request.user)
+        Booking.objects.for_guest(request.user)
+        .filter(id=booking_id)
         .select_related("room_type", "room_type__hotel", "discount_code")
         .first()
     )
@@ -195,12 +196,12 @@ def booking_cancel_view(request, booking_id):
 @role_required("manager")
 def manager_discounts_list_create_view(request, hotel_id):
     """List discount codes (GET) or create a discount code (POST) for a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
     if request.method == "GET":
-        discounts = hotel.discount_codes.all().order_by("-created_at")
+        discounts = DiscountCode.objects.for_hotel(hotel).order_by("-created_at")
         return json_ok([discount_code_to_dict(dc) for dc in discounts])
 
     if request.method == "POST":
@@ -223,8 +224,9 @@ def manager_discounts_list_create_view(request, hotel_id):
 def manager_discount_detail_update_delete_view(request, discount_id):
     """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own discount code."""
     discount_code = (
-        DiscountCode.objects.select_related("hotel")
-        .filter(id=discount_id, hotel__owner=request.user)
+        DiscountCode.objects.owned_by(request.user)
+        .select_related("hotel")
+        .filter(id=discount_id)
         .first()
     )
     if not discount_code:
@@ -262,7 +264,7 @@ def manager_discount_detail_update_delete_view(request, discount_id):
 @role_required("manager")
 def manager_hotel_bookings_list_view(request, hotel_id):
     """List bookings for a manager's own hotel with optional status and date filters."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
@@ -275,7 +277,7 @@ def manager_hotel_bookings_list_view(request, hotel_id):
     date_to = form.cleaned_data.get("date_to")
 
     bookings_qs = (
-        Booking.objects.filter(room_type__hotel=hotel)
+        Booking.objects.for_hotel(hotel)
         .select_related("guest", "room_type", "discount_code")
         .order_by("-created_at")
     )
@@ -297,7 +299,7 @@ def manager_hotel_bookings_list_view(request, hotel_id):
 @role_required("manager")
 def manager_hotel_availability_view(request, hotel_id):
     """Return availability breakdown (total, reserved, free) per room type per day for a manager's own hotel."""
-    hotel = Hotel.objects.filter(id=hotel_id, owner=request.user).first()
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
         return json_error("Hotel not found.", status=404)
 
@@ -308,18 +310,15 @@ def manager_hotel_availability_view(request, hotel_id):
     date_from = form.cleaned_data["date_from"]
     date_to = form.cleaned_data["date_to"]
 
-    room_types = list(hotel.room_types.all().order_by("price_per_night"))
+    room_types = list(RoomType.objects.for_hotel(hotel).order_by("price_per_night"))
     if not room_types:
         return json_ok([])
 
     # Query all confirmed overlapping bookings within the requested range
     overlapping_bookings = list(
-        Booking.objects.filter(
-            room_type__in=room_types,
-            status=Booking.Status.CONFIRMED,
-            check_in__lt=date_to,
-            check_out__gt=date_from,
-        )
+        Booking.objects.active()
+        .for_hotel(hotel)
+        .overlapping(date_from, date_to)
     )
 
     bookings_by_room = defaultdict(list)
