@@ -629,3 +629,83 @@ class SessionManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
         self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+
+
+class AuthLoggingCoverageTests(TestCase):
+    """Tests verifying logging coverage in accounts views (P3-09)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="logging_user",
+            email="logging_user@example.com",
+            password="StrongPassword123!",
+            role=User.Role.GUEST,
+        )
+
+    def test_register_success_logging(self):
+        payload = {
+            "username": "new_audit_user",
+            "email": "new_audit@example.com",
+            "password": "StrongPassword123!",
+            "password2": "StrongPassword123!",
+            "role": "guest",
+        }
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(
+                reverse("accounts:register"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            self.assertTrue(any("User registered successfully" in m and "new_audit_user" in m for m in cm.output))
+
+    def test_register_validation_failure_logging(self):
+        payload = {
+            "username": "bad",
+            "email": "not-an-email",
+            "password": "123",
+            "password2": "456",
+        }
+        with self.assertLogs("apps.accounts.views", level="WARNING") as cm:
+            res = self.client.post(
+                reverse("accounts:register"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Registration validation failed" in m for m in cm.output))
+
+    def test_login_success_and_logout_logging(self):
+        login_payload = {
+            "username_or_email": "logging_user",
+            "password": "StrongPassword123!",
+            "remember_me": True,
+        }
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(
+                reverse("accounts:login"),
+                data=json.dumps(login_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("User logged in successfully" in m and "logging_user" in m for m in cm.output))
+
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(reverse("accounts:logout"))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("User logged out: user_id=" in m and "logging_user" in m for m in cm.output))
+
+    def test_login_failure_logging(self):
+        bad_payload = {
+            "username_or_email": "logging_user",
+            "password": "WrongPassword!",
+        }
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = self.client.post(
+                reverse("accounts:login"),
+                data=json.dumps(bad_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Login failed for identifier=logging_user" in m for m in cm.output))
