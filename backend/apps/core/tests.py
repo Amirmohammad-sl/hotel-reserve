@@ -547,3 +547,70 @@ class LoggingConfigurationTests(TestCase):
         with open(app_log_file, "r", encoding="utf-8") as f:
             content = f.read()
         self.assertIn("GET /api/health/ 200 user_id=anon", content)
+
+
+
+class CoreLoggingCoverageTests(TestCase):
+    """Tests verifying logging coverage in core decorators and views (P3-09)."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(
+            username="test_log_user",
+            email="test_log@example.com",
+            password="password123",
+            role=User.Role.GUEST,
+        )
+
+    def test_login_required_unauthenticated_logs_security_warning(self):
+        @login_required_json
+        def dummy_view(request):
+            return json_ok({})
+
+        req = self.factory.get("/api/dummy-secure/")
+        req.user = AnonymousUser()
+
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = dummy_view(req)
+            self.assertEqual(res.status_code, 401)
+            self.assertTrue(any("Unauthenticated access attempt to /api/dummy-secure/" in m for m in cm.output))
+
+    def test_role_required_forbidden_role_logs_security_warning(self):
+        @role_required("manager")
+        def manager_view(request):
+            return json_ok({})
+
+        req = self.factory.get("/api/manager-only/")
+        req.user = self.user
+
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = manager_view(req)
+            self.assertEqual(res.status_code, 403)
+            self.assertTrue(any("Forbidden role access: user_id=" in m for m in cm.output))
+
+    def test_custom_error_views_logging(self):
+        from apps.core.views import bad_request_view, permission_denied_view, page_not_found_view, server_error_view
+
+        req = self.factory.get("/api/test-400/")
+        with self.assertLogs("apps.core.views", level="WARNING") as cm:
+            res = bad_request_view(req, exception=Exception("Bad input"))
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Bad request on /api/test-400/" in m for m in cm.output))
+
+        req = self.factory.get("/api/test-403/")
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = permission_denied_view(req, exception=Exception("Denied"))
+            self.assertEqual(res.status_code, 403)
+            self.assertTrue(any("Permission denied on /api/test-403/" in m for m in cm.output))
+
+        req = self.factory.get("/api/test-404/")
+        with self.assertLogs("apps.core.views", level="INFO") as cm:
+            res = page_not_found_view(req, exception=Exception("Not found"))
+            self.assertEqual(res.status_code, 404)
+            self.assertTrue(any("Resource not found on /api/test-404/" in m for m in cm.output))
+
+        req = self.factory.get("/api/test-500/")
+        with self.assertLogs("apps.core.views", level="ERROR") as cm:
+            res = server_error_view(req)
+            self.assertEqual(res.status_code, 500)
+            self.assertTrue(any("Internal server error on /api/test-500/" in m for m in cm.output))
