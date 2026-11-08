@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
@@ -1654,3 +1655,115 @@ class GuestViewsManagerRefactorTests(TestCase):
         # Standard: quantity 2 - 0 reserved = 2 available
         self.assertEqual(standard["available_count"], 2)
         self.assertTrue(standard["available"])
+
+
+
+class HotelLoggingCoverageTests(TestCase):
+    """Tests verifying logging coverage in hotels views (P3-09)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="hotel_log_mgr",
+            email="hotel_log_mgr@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+        )
+        self.other_manager = User.objects.create_user(
+            username="other_mgr",
+            email="other_mgr@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            name="Log Test Hotel",
+            city="Shiraz",
+            address="Zand St",
+            owner=self.manager,
+        )
+
+    def test_manager_hotel_crud_logging(self):
+        self.client.force_login(self.manager)
+
+        # 1. Create hotel
+        payload = {
+            "name": "Audit Grand Hotel",
+            "city": "Tehran",
+            "address": "Valiasr St",
+            "description": "Luxury audit hotel",
+            "star_rating": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.post(
+                reverse("hotels:manager_hotels_list_create"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            hotel_id = res.json()["data"]["id"]
+            self.assertTrue(any("Manager created hotel" in m and "Audit Grand Hotel" in m for m in cm.output))
+
+        # 2. Update hotel
+        update_payload = {
+            "name": "Audit Grand Hotel Renovated",
+            "city": "Tehran",
+            "address": "Valiasr St",
+            "description": "Luxury audit hotel updated",
+            "star_rating": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.put(
+                reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": hotel_id}),
+                data=json.dumps(update_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager updated hotel" in m and "Audit Grand Hotel Renovated" in m for m in cm.output))
+
+        # 3. Delete hotel
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.delete(reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": hotel_id}))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager deleted hotel" in m and str(hotel_id) in m for m in cm.output))
+
+    def test_manager_hotel_unauthorized_access_logging(self):
+        self.client.force_login(self.other_manager)
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = self.client.get(reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel.id}))
+            self.assertEqual(res.status_code, 404)
+            self.assertTrue(any("Manager hotel access denied or not found" in m and str(self.hotel.id) in m for m in cm.output))
+
+    def test_manager_room_type_crud_logging(self):
+        self.client.force_login(self.manager)
+        payload = {
+            "title": "Audit Suite",
+            "capacity": 2,
+            "price_per_night": 2000000,
+            "quantity": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.post(
+                reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel.id}),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            rt_id = res.json()["data"]["id"]
+            self.assertTrue(any("Manager created room type" in m and "Audit Suite" in m for m in cm.output))
+
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.delete(reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": rt_id}))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager deleted room type" in m and str(rt_id) in m for m in cm.output))
+
+    def test_public_views_logging(self):
+        # 1. Validation failure on invalid search
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.get(reverse("hotels:hotels_list"), {"check_in": "2020-01-01", "check_out": "2020-01-05"})
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Hotel search validation failed" in m for m in cm.output))
+
+        # 2. Not found hotel
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.get(reverse("hotels:hotel_detail", kwargs={"hotel_id": 999999}))
+            self.assertEqual(res.status_code, 404)
+            self.assertTrue(any("Hotel not found: hotel_id=999999" in m for m in cm.output))
