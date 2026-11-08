@@ -131,13 +131,13 @@
 - Depends: P3-03, P3-06, P3-07, P3-09, P3-10
 - Size: S
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Deliver Phase 3.
 - Flow: do `/phase-close 3` inside this task (on a task branch cut from `phase/3`), merge it into `phase/3`; on delivery day run `/phase-deliver 3` (PR `phase/3` → `main`, merge commit, tag `phase-3`).
 - Deliverables:
   - `/phase-close 3` (fresh DB → seed → demo → dump → tag `phase-3`). Managers list with reasons drafted in docs/report/managers.md.
 - DoD:
-  - [ ] Both can explain every manager, the session/cookie flow, and show logs for a booking.
+  - [x] Both can explain every manager, the session/cookie flow, and show logs for a booking.
 
 ## Exit checklist (Phase 3)
-- [ ] Managers + reasons · sessions · cookies · logging in every app · DB backup · tag.
+- [x] Managers + reasons · sessions · cookies · logging in every app · DB backup · tag.
