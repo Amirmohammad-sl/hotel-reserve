@@ -107,12 +107,12 @@
 - Depends: P3-03, P3-08
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: "Logging in all parts of the project" for A's apps.
 - Deliverables:
   - Logger per module; events: register/login success/fail/logout, hotel/room/discount CRUD, forbidden access, form validation failures (WARNING/INFO), unexpected exceptions (ERROR with traceback).
 - DoD:
-  - [ ] Checklist table (event → file:line → level) in journal; grep shows every view module has a logger.
+  - [x] Checklist table (event → file:line → level) in journal; grep shows every view module has a logger.
 
 ### P3-10 · Logging coverage: bookings, reviews, managers
 - Owner: B
