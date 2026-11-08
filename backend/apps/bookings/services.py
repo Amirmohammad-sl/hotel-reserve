@@ -1,6 +1,7 @@
 """Domain and business logic services for guest bookings and discounts."""
 
 from datetime import date
+import logging
 from typing import Any, Dict, Optional, Tuple
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -8,6 +9,8 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking, DiscountCode
 from apps.hotels.models import RoomType
+
+logger = logging.getLogger(__name__)
 
 
 class AvailabilityConflictError(Exception):
@@ -31,7 +34,9 @@ def validate_discount_code(
     Returns:
         (is_valid, discount_obj, reason_message)
     """
+    hotel_id = getattr(hotel, "id", hotel)
     if not code:
+        logger.info("Discount code validation failed: empty code for hotel_id=%s", hotel_id)
         return False, None, "Discount code cannot be empty."
 
     if today is None:
@@ -39,6 +44,13 @@ def validate_discount_code(
 
     valid_discount = DiscountCode.objects.get_valid(hotel=hotel, code=code, today=today)
     if valid_discount:
+        logger.info(
+            "Discount code applied: code='%s' hotel_id=%s discount_id=%s percent=%d",
+            valid_discount.code,
+            hotel_id,
+            valid_discount.id,
+            valid_discount.percent,
+        )
         return True, valid_discount, f"Discount code applied ({valid_discount.percent}% off)."
 
     normalized_code = code.strip().upper()
@@ -48,21 +60,33 @@ def validate_discount_code(
     )
 
     if not discount:
-        return False, None, "Discount code not found for this hotel."
+        reason = "Discount code not found for this hotel."
+        logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+        return False, None, reason
 
     if not discount.is_active:
-        return False, discount, "Discount code is inactive."
+        reason = "Discount code is inactive."
+        logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+        return False, discount, reason
 
     if today < discount.valid_from:
-        return False, discount, "Discount code is not active yet."
+        reason = "Discount code is not active yet."
+        logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+        return False, discount, reason
 
     if today > discount.valid_to:
-        return False, discount, "Discount code has expired."
+        reason = "Discount code has expired."
+        logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+        return False, discount, reason
 
     if discount.max_uses is not None and discount.used_count >= discount.max_uses:
-        return False, discount, "Discount code has reached its maximum redemptions."
+        reason = "Discount code has reached its maximum redemptions."
+        logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+        return False, discount, reason
 
-    return False, discount, "Discount code is not valid."
+    reason = "Discount code is not valid."
+    logger.info("Discount code rejected: code='%s' hotel_id=%s reason='%s'", normalized_code, hotel_id, reason)
+    return False, discount, reason
 
 
 def calculate_booking_quote(
@@ -81,6 +105,12 @@ def calculate_booking_quote(
         ValidationError if discount_code is invalid.
     """
     if check_out <= check_in:
+        logger.warning(
+            "Quote calculation failed: invalid dates check_in=%s check_out=%s room_type_id=%s",
+            check_in,
+            check_out,
+            getattr(room_type, "id", None),
+        )
         raise ValidationError({"check_out": "Check-out date must be after check-in date."})
 
     nights = (check_out - check_in).days
@@ -104,11 +134,30 @@ def calculate_booking_quote(
             today=today,
         )
         if not is_valid:
+            logger.info(
+                "Quote rejected invalid discount code='%s' for room_type_id=%s: %s",
+                discount_code,
+                room_type.id,
+                reason,
+            )
             raise ValidationError({"discount_code": reason})
 
         discount_amount = (subtotal * discount_obj.percent) // 100
 
     total_price = max(0, subtotal - discount_amount)
+
+    logger.debug(
+        "Quote calculated: room_type_id=%s check_in=%s check_out=%s rooms=%d nights=%d subtotal=%d discount=%d total=%d available=%s",
+        room_type.id,
+        check_in,
+        check_out,
+        rooms_count,
+        nights,
+        subtotal,
+        discount_amount,
+        total_price,
+        available,
+    )
 
     return {
         "nights": nights,
@@ -161,6 +210,16 @@ def create_booking(
         )
 
         if not quote["available"]:
+            logger.warning(
+                "Booking conflict: requested %d room(s) unavailable for room_type_id=%s hotel_id=%s check_in=%s check_out=%s available=%d guest_id=%s",
+                rooms_count,
+                locked_room_type.id,
+                locked_room_type.hotel_id,
+                check_in,
+                check_out,
+                quote["available_count"],
+                guest.id,
+            )
             raise AvailabilityConflictError(
                 f"Requested {rooms_count} room(s) not available for the selected dates (only {quote['available_count']} available)."
             )
@@ -168,6 +227,12 @@ def create_booking(
         discount_obj = quote["discount_obj"]
         if discount_obj:
             if discount_obj.max_uses is not None and discount_obj.used_count >= discount_obj.max_uses:
+                logger.warning(
+                    "Booking creation rejected: discount code max redemptions reached code='%s' discount_id=%s guest_id=%s",
+                    discount_obj.code,
+                    discount_obj.id,
+                    guest.id,
+                )
                 raise ValidationError({"discount_code": "Discount code has reached its maximum redemptions."})
 
             DiscountCode.objects.filter(id=discount_obj.id).update(
@@ -190,6 +255,18 @@ def create_booking(
             total_price=quote["total_price"],
             status=Booking.Status.CONFIRMED,
         )
+        logger.info(
+            "Booking created: booking_id=%s guest_id=%s room_type_id=%s hotel_id=%s check_in=%s check_out=%s rooms=%d total_price=%d discount_id=%s",
+            booking.id,
+            guest.id,
+            locked_room_type.id,
+            locked_room_type.hotel_id,
+            check_in,
+            check_out,
+            rooms_count,
+            booking.total_price,
+            booking.discount_code_id,
+        )
         return booking
 
 
@@ -207,16 +284,34 @@ def cancel_booking(booking: Booking, user) -> Booking:
             .first()
         )
         if not locked_booking:
+            logger.warning("Booking cancellation failed: booking_id=%s not found", booking.id)
             raise BookingCancellationError("Booking not found.")
 
         if locked_booking.guest_id != user.id:
+            logger.warning(
+                "Booking cancellation forbidden: booking_id=%s belongs to user_id=%s, attempted by user_id=%s",
+                locked_booking.id,
+                locked_booking.guest_id,
+                user.id,
+            )
             raise BookingCancellationError("You do not have permission to cancel this booking.")
 
         if locked_booking.status != Booking.Status.CONFIRMED:
+            logger.warning(
+                "Booking cancellation rejected: booking_id=%s status is already '%s'",
+                locked_booking.id,
+                locked_booking.status,
+            )
             raise BookingCancellationError("Booking is already cancelled.")
 
         today = timezone.localdate()
         if locked_booking.check_in <= today:
+            logger.warning(
+                "Booking cancellation rejected: booking_id=%s check_in=%s is today or in the past (today=%s)",
+                locked_booking.id,
+                locked_booking.check_in,
+                today,
+            )
             raise BookingCancellationError("Cannot cancel a booking on or after the check-in date.")
 
         locked_booking.status = Booking.Status.CANCELLED
@@ -231,4 +326,11 @@ def cancel_booking(booking: Booking, user) -> Booking:
             if locked_booking.discount_code:
                 locked_booking.discount_code.refresh_from_db()
 
+        logger.info(
+            "Booking cancelled successfully: booking_id=%s guest_id=%s room_type_id=%s restored_discount_id=%s",
+            locked_booking.id,
+            user.id,
+            locked_booking.room_type_id,
+            locked_booking.discount_code_id,
+        )
         return locked_booking
