@@ -10,6 +10,8 @@ from apps.core.decorators import login_required_json
 from apps.core.forms import form_errors
 from apps.core.http import json_error, json_ok, parse_json
 from .forms import LoginForm, RegisterForm, user_to_dict
+from .models import User
+from .tokens import BadSignature, SignatureExpired, send_verification_email, verify_token
 
 logger = logging.getLogger(__name__)
 security_logger = logging.getLogger("apps.security")
@@ -47,6 +49,7 @@ def register_view(request: HttpRequest) -> HttpResponse:
             user.role,
             user.email,
         )
+        send_verification_email(user, request)
         return json_ok(user_to_dict(user), status=201)
 
     logger.warning(
@@ -140,3 +143,58 @@ def me_view(request: HttpRequest) -> HttpResponse:
         return json_ok(data)
     logger.debug("Current user requested: anonymous")
     return JsonResponse({"data": None}, status=200)
+
+
+@require_POST
+def verify_email_view(request: HttpRequest) -> HttpResponse:
+    """
+    POST /api/auth/verify-email/
+    Verify user's email with signed token.
+    Public endpoint.
+    Returns 200 with user dict on success, 400 on invalid or expired token.
+    """
+    data = _extract_request_data(request)
+    if not data or not data.get("token"):
+        return json_error("Token is required.", status=400)
+
+    token = data.get("token")
+    try:
+        user = verify_token(token)
+    except SignatureExpired:
+        logger.warning("Verification token expired from IP %s", request.META.get("REMOTE_ADDR"))
+        return json_error("Verification link has expired. Please request a new one.", status=400)
+    except (BadSignature, User.DoesNotExist):
+        logger.warning("Invalid verification token attempt from IP %s", request.META.get("REMOTE_ADDR"))
+        return json_error("Invalid or malformed verification link.", status=400)
+
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
+
+    security_logger.info(
+        "Email verified successfully: user_id=%s username=%s email=%s IP=%s",
+        user.id,
+        user.username,
+        user.email,
+        request.META.get("REMOTE_ADDR"),
+    )
+    return json_ok(user_to_dict(user))
+
+
+@require_POST
+@login_required_json
+def resend_verification_view(request: HttpRequest) -> HttpResponse:
+    """
+    POST /api/auth/resend-verification/
+    Resend verification email to current authenticated user.
+    Returns 200 on success, 400 if already verified, 401 if unauthenticated.
+    """
+    user = request.user
+    if user.email_verified:
+        return json_error("Email is already verified.", status=400)
+
+    sent = send_verification_email(user, request)
+    if not sent:
+        return json_error("Failed to send verification email. Please try again later.", status=500)
+
+    security_logger.info("Verification email resent: user_id=%s email=%s", user.id, user.email)
+    return json_ok({"message": "Verification email sent successfully."})
