@@ -1,8 +1,11 @@
+import logging
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class DiscountCodeQuerySet(models.QuerySet):
@@ -35,7 +38,15 @@ class DiscountCodeQuerySet(models.QuerySet):
         if not code:
             return None
         normalized_code = str(code).strip().upper()
-        return self.valid_now(hotel, today=today).filter(code=normalized_code).first()
+        res = self.valid_now(hotel, today=today).filter(code=normalized_code).first()
+        hotel_id = getattr(hotel, "id", hotel)
+        logger.debug(
+            "DiscountCodeQuerySet.get_valid queried: hotel_id=%s code='%s' found=%s",
+            hotel_id,
+            normalized_code,
+            res is not None,
+        )
+        return res
 
     def for_hotel(self, hotel):
         """Filter discount codes belonging to a specific hotel instance or hotel ID.
@@ -159,6 +170,11 @@ class BookingQuerySet(models.QuerySet):
         mandated by Decision D-006. Ensures that same-day turnover (e.g. guest departs morning of 5th
         and another arrives afternoon of 5th) does not trigger an overlap conflict.
         """
+        logger.debug(
+            "BookingQuerySet.overlapping queried: check_in=%s check_out=%s",
+            check_in,
+            check_out,
+        )
         return self.filter(check_in__lt=check_out, check_out__gt=check_in)
 
     def for_hotel(self, hotel):
