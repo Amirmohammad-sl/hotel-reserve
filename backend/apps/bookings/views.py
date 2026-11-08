@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from datetime import timedelta
+import logging
 from django.core.exceptions import ValidationError
 from django.views.decorators.http import require_GET, require_POST
 
@@ -27,6 +28,9 @@ from apps.core.decorators import role_required
 from apps.core.forms import form_errors
 from apps.core.http import json_error, json_ok, parse_json
 from apps.hotels.models import Hotel, RoomType
+
+logger = logging.getLogger(__name__)
+security_logger = logging.getLogger("apps.security")
 
 
 # ---------------------------------------------------------------------------
@@ -198,23 +202,34 @@ def manager_discounts_list_create_view(request, hotel_id):
     """List discount codes (GET) or create a discount code (POST) for a manager's own hotel."""
     hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
+        security_logger.warning("Manager discounts hotel access denied or not found: hotel_id=%s user_id=%s", hotel_id, request.user.id)
         return json_error("Hotel not found.", status=404)
 
     if request.method == "GET":
         discounts = DiscountCode.objects.for_hotel(hotel).order_by("-created_at")
+        logger.debug("Manager discounts listed: hotel_id=%s count=%d user_id=%s", hotel_id, len(discounts), request.user.id)
         return json_ok([discount_code_to_dict(dc) for dc in discounts])
 
     if request.method == "POST":
         try:
             data = parse_json(request)
         except ValueError as exc:
+            logger.warning("Manager discount create failed: invalid JSON for hotel_id=%s user_id=%s error=%s", hotel_id, request.user.id, exc)
             return json_error(str(exc), status=400)
 
         form = DiscountCodeForm(data, hotel=hotel)
         if not form.is_valid():
+            logger.warning("Manager discount create validation failed for hotel_id=%s user_id=%s: %s", hotel_id, request.user.id, form_errors(form))
             return json_error("Validation failed", errors=form_errors(form), status=400)
 
         discount_code = form.save()
+        logger.info(
+            "Manager created discount code: discount_id=%s code='%s' hotel_id=%s user_id=%s",
+            discount_code.id,
+            discount_code.code,
+            hotel_id,
+            request.user.id,
+        )
         return json_ok(discount_code_to_dict(discount_code), status=201)
 
     return json_error("Method not allowed", status=405)
@@ -230,26 +245,34 @@ def manager_discount_detail_update_delete_view(request, discount_id):
         .first()
     )
     if not discount_code:
+        security_logger.warning("Manager discount access denied or not found: discount_id=%s user_id=%s", discount_id, request.user.id)
         return json_error("Discount code not found.", status=404)
 
     if request.method == "GET":
+        logger.debug("Manager discount viewed: discount_id=%s user_id=%s", discount_id, request.user.id)
         return json_ok(discount_code_to_dict(discount_code))
 
     if request.method in ("PUT", "PATCH"):
         try:
             data = parse_json(request)
         except ValueError as exc:
+            logger.warning("Manager discount update failed: invalid JSON for discount_id=%s user_id=%s error=%s", discount_id, request.user.id, exc)
             return json_error(str(exc), status=400)
 
         form = DiscountCodeForm(data, instance=discount_code, hotel=discount_code.hotel)
         if not form.is_valid():
+            logger.warning("Manager discount update validation failed for discount_id=%s user_id=%s: %s", discount_id, request.user.id, form_errors(form))
             return json_error("Validation failed", errors=form_errors(form), status=400)
 
         discount_code = form.save()
+        logger.info("Manager updated discount code: discount_id=%s code='%s' user_id=%s", discount_code.id, discount_code.code, request.user.id)
         return json_ok(discount_code_to_dict(discount_code))
 
     if request.method == "DELETE":
+        code_str = discount_code.code
+        hotel_id = discount_code.hotel.id
         discount_code.delete()
+        logger.info("Manager deleted discount code: discount_id=%s code='%s' hotel_id=%s user_id=%s", discount_id, code_str, hotel_id, request.user.id)
         return json_ok({"message": "Discount code deleted successfully."})
 
     return json_error("Method not allowed", status=405)
@@ -266,10 +289,12 @@ def manager_hotel_bookings_list_view(request, hotel_id):
     """List bookings for a manager's own hotel with optional status and date filters."""
     hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
+        security_logger.warning("Manager bookings hotel access denied or not found: hotel_id=%s user_id=%s", hotel_id, request.user.id)
         return json_error("Hotel not found.", status=404)
 
     form = ManagerBookingFilterForm(request.GET)
     if not form.is_valid():
+        logger.info("Manager bookings filter validation failed for hotel_id=%s: %s", hotel_id, form_errors(form))
         return json_error("Invalid filter parameters", errors=form_errors(form), status=400)
 
     status_filter = form.cleaned_data.get("status")
@@ -292,7 +317,9 @@ def manager_hotel_bookings_list_view(request, hotel_id):
     elif date_to:
         bookings_qs = bookings_qs.filter(check_in__lte=date_to)
 
-    return json_ok([booking_to_dict(b) for b in bookings_qs])
+    bookings_list = list(bookings_qs)
+    logger.debug("Manager hotel bookings listed: hotel_id=%s count=%d user_id=%s", hotel_id, len(bookings_list), request.user.id)
+    return json_ok([booking_to_dict(b) for b in bookings_list])
 
 
 @require_GET
@@ -301,10 +328,12 @@ def manager_hotel_availability_view(request, hotel_id):
     """Return availability breakdown (total, reserved, free) per room type per day for a manager's own hotel."""
     hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
     if not hotel:
+        security_logger.warning("Manager availability hotel access denied or not found: hotel_id=%s user_id=%s", hotel_id, request.user.id)
         return json_error("Hotel not found.", status=404)
 
     form = ManagerAvailabilityFilterForm(request.GET)
     if not form.is_valid():
+        logger.info("Manager availability filter validation failed for hotel_id=%s: %s", hotel_id, form_errors(form))
         return json_error("Invalid date parameters", errors=form_errors(form), status=400)
 
     date_from = form.cleaned_data["date_from"]
@@ -356,4 +385,5 @@ def manager_hotel_availability_view(request, hotel_id):
             }
         )
 
+    logger.debug("Manager hotel availability computed: hotel_id=%s date_from=%s date_to=%s user_id=%s", hotel_id, date_from, date_to, request.user.id)
     return json_ok(results)
