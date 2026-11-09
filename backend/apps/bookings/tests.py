@@ -60,6 +60,7 @@ class BookingModelTests(TestCase):
             email="guest@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -538,6 +539,7 @@ class DiscountCodeFormAndSerializerTests(TestCase):
             email="dictguest@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         rt = RoomType.objects.create(
             hotel=self.hotel,
@@ -587,6 +589,7 @@ class ManagerDiscountViewsTests(TestCase):
             email="guest@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel1 = Hotel.objects.create(
             owner=self.manager1,
@@ -736,6 +739,7 @@ class ManagerBookingsViewTests(TestCase):
             email="guest_b@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel1 = Hotel.objects.create(
             owner=self.manager1,
@@ -844,6 +848,7 @@ class ManagerAvailabilityViewTests(TestCase):
             email="guest_avail@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel1 = Hotel.objects.create(
             owner=self.manager1,
@@ -1126,6 +1131,7 @@ class BookingServicesTestCase(TestCase):
             email="srv_guest@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -1237,12 +1243,14 @@ class BookingViewsTestCase(TestCase):
             email="view_guest@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.other_guest = User.objects.create_user(
             username="other_guest",
             email="other_guest@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -1367,12 +1375,14 @@ class BookingDoDTestCase(TestCase):
             email="dod_guest1@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.guest2 = User.objects.create_user(
             username="dod_guest2",
             email="dod_guest2@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -1479,12 +1489,14 @@ class BookingQuerySetAndDiscountManagerTests(TestCase):
             email="p3_guest@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.other_guest = User.objects.create_user(
             username="p3_other_guest",
             email="p3_other_guest@test.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
 
         self.hotel = Hotel.objects.create(
@@ -1811,12 +1823,14 @@ class GuestBookingManagerRefactorTests(TestCase):
             email="p304_g1@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.guest2 = User.objects.create_user(
             username="p304_guest2",
             email="p304_g2@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -1945,12 +1959,14 @@ class BookingConcurrencyTests(TransactionTestCase):
             email="conc_a@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.guest_b = User.objects.create_user(
             username="concurrent_guest_b",
             email="conc_b@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -2099,6 +2115,7 @@ class BookingsLoggingCoverageTests(TestCase):
             email="log_guest@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,

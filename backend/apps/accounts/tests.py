@@ -1,4 +1,7 @@
 from django.conf import settings
+from django.core import mail
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from unittest.mock import patch
 from django.contrib.sessions.models import Session
 import json
 from django.contrib.admin.sites import site
@@ -9,6 +12,13 @@ from django.urls import reverse
 from .admin import CustomUserAdmin
 from .forms import LoginForm, RegisterForm, user_to_dict
 from .models import User
+from .tokens import (
+    VERIFICATION_TOKEN_MAX_AGE,
+    build_verification_url,
+    generate_verification_token,
+    get_signer,
+    verify_token,
+)
 
 
 class UserModelTests(TestCase):
@@ -709,3 +719,175 @@ class AuthLoggingCoverageTests(TestCase):
             )
             self.assertEqual(res.status_code, 400)
             self.assertTrue(any("Login failed for identifier=logging_user" in m for m in cm.output))
+
+
+class EmailVerificationTests(TestCase):
+    """Unit and integration test suite for email verification flow (P4-01)."""
+
+    def setUp(self):
+        self.guest = User.objects.create_user(
+            username="unverified_guest",
+            email="unverified@example.com",
+            password="StrongPassword123!",
+            role=User.Role.GUEST,
+            email_verified=False,
+        )
+        self.manager = User.objects.create_user(
+            username="unverified_manager",
+            email="manager_unverified@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+            email_verified=False,
+        )
+
+    def test_token_generation_and_verification(self):
+        token = generate_verification_token(self.guest)
+        self.assertIsInstance(token, str)
+        self.assertIn(":", token)
+
+        user = verify_token(token)
+        self.assertEqual(user.id, self.guest.id)
+        self.assertEqual(user.username, self.guest.username)
+
+    def test_token_expired(self):
+        token = generate_verification_token(self.guest)
+        # Verify token unsign with max_age=-1 raises SignatureExpired
+        signer = get_signer()
+        with self.assertRaises(SignatureExpired):
+            signer.unsign(token, max_age=-1)
+
+        # Endpoint with expired token returns 400
+        with patch("apps.accounts.views.verify_token", side_effect=SignatureExpired("Expired")):
+            res = self.client.post(
+                reverse("accounts:verify-email"),
+                data=json.dumps({"token": token}),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertIn("expired", res.json()["message"].lower())
+
+    def test_token_bad_signature(self):
+        # Malformed or tampered token
+        res = self.client.post(
+            reverse("accounts:verify-email"),
+            data=json.dumps({"token": "invalid:bad:token:xyz"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("invalid", res.json()["message"].lower())
+
+        # Empty token
+        res_empty = self.client.post(
+            reverse("accounts:verify-email"),
+            data=json.dumps({"token": ""}),
+            content_type="application/json",
+        )
+        self.assertEqual(res_empty.status_code, 400)
+
+    def test_verify_email_endpoint_success(self):
+        self.assertFalse(self.guest.email_verified)
+        token = generate_verification_token(self.guest)
+
+        with self.assertLogs("apps.security", level="INFO") as sec_logs:
+            res = self.client.post(
+                reverse("accounts:verify-email"),
+                data=json.dumps({"token": token}),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(data["id"], self.guest.id)
+        self.assertTrue(data["email_verified"])
+
+        self.guest.refresh_from_db()
+        self.assertTrue(self.guest.email_verified)
+        self.assertTrue(any("Email verified successfully" in msg for msg in sec_logs.output))
+
+    def test_registration_triggers_verification_email(self):
+        mail.outbox.clear()
+        reg_payload = {
+            "username": "verify_flow_user",
+            "email": "verifyflow@example.com",
+            "password": "Password123!",
+            "password2": "Password123!",
+            "role": "guest",
+        }
+        res = self.client.post(
+            reverse("accounts:register"),
+            data=json.dumps(reg_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 201)
+        user_id = res.json()["data"]["id"]
+        new_user = User.objects.get(pk=user_id)
+        self.assertFalse(new_user.email_verified)
+
+        # Check console/outbox email
+        self.assertEqual(len(mail.outbox), 1)
+        email_msg = mail.outbox[0]
+        self.assertIn("Verify your email address", email_msg.subject)
+        self.assertIn("verifyflow@example.com", email_msg.to)
+        self.assertIn("/verify-email?token=", email_msg.body)
+
+        # Extract token from verification URL in email body
+        token = email_msg.body.split("token=")[1].split()[0]
+        verify_res = self.client.post(
+            reverse("accounts:verify-email"),
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+        self.assertEqual(verify_res.status_code, 200)
+        self.assertTrue(verify_res.json()["data"]["email_verified"])
+        new_user.refresh_from_db()
+        self.assertTrue(new_user.email_verified)
+
+    def test_resend_verification_endpoint(self):
+        mail.outbox.clear()
+        resend_url = reverse("accounts:resend-verification")
+
+        # Anonymous request returns 401
+        res_anon = self.client.post(resend_url)
+        self.assertEqual(res_anon.status_code, 401)
+
+        # Logged-in unverified user gets 200 and receives email
+        self.client.force_login(self.guest)
+        with self.assertLogs("apps.security", level="INFO") as sec_logs:
+            res_auth = self.client.post(resend_url)
+        self.assertEqual(res_auth.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.guest.email, mail.outbox[0].to)
+        self.assertTrue(any("Verification email resent" in msg for msg in sec_logs.output))
+
+        # Already verified user returns 400
+        self.guest.email_verified = True
+        self.guest.save()
+        res_already = self.client.post(resend_url)
+        self.assertEqual(res_already.status_code, 400)
+        self.assertIn("already verified", res_already.json()["message"].lower())
+
+    def test_unverified_guard_on_booking_create(self):
+        # Unverified guest cannot create booking -> 403
+        self.client.force_login(self.guest)
+        res = self.client.post(
+            reverse("bookings:booking-create"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("Email verification required", res.json()["message"])
+
+    def test_unverified_guard_on_hotel_create(self):
+        # Unverified manager cannot create hotel -> 403
+        self.client.force_login(self.manager)
+        url = reverse("hotels:manager_hotels_list_create")
+        res = self.client.post(
+            url,
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("Email verification required", res.json()["message"])
+
+        # But unverified manager can view their hotels list -> 200
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, 200)

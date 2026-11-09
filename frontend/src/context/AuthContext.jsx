@@ -100,6 +100,7 @@ export function AuthProvider({ children }) {
       loading,
       error,
       isAuthenticated: Boolean(user),
+      isVerified: Boolean(user?.email_verified),
       isManager: user?.role === 'manager',
       isGuest: user?.role === 'guest',
       login,
