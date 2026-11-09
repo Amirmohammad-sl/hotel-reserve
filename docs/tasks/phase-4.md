@@ -5,14 +5,14 @@
 - Depends: P2-03, P2-06, P2-07
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Users verify their e-mail with a link.
 - Deliverables:
   - Signed token (48h) via `django.core.signing`; send on register; `/api/auth/verify-email/`, `/api/auth/resend-verification/`.
   - `@verified_required` on booking and hotel-creation endpoints (403 + clear message).
   - React: `/verify-email?token=...` page + banner with "resend" for unverified users (touches B's frontend area — allowed by this task).
 - DoD:
-  - [ ] With console email backend: register → copy link from terminal → verified → can book; expired/invalid token handled.
+  - [x] With console email backend: register → copy link from terminal → verified → can book; expired/invalid token handled.
 
 ### P4-02 · Email templates + booking confirmation email
 - Owner: A

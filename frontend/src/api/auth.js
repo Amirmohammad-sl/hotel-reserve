@@ -36,3 +36,18 @@ export async function logoutApi() {
 export async function getMeApi() {
   return apiClient.get('/api/auth/me/')
 }
+
+/**
+ * Verify user email address with signed token.
+ * Payload: { token }
+ */
+export async function verifyEmailApi(payload) {
+  return apiClient.post('/api/auth/verify-email/', payload)
+}
+
+/**
+ * Resend email verification link for current user session.
+ */
+export async function resendVerificationApi() {
+  return apiClient.post('/api/auth/resend-verification/')
+}

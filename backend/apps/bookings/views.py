@@ -24,7 +24,7 @@ from apps.bookings.services import (
     create_booking,
     validate_discount_code,
 )
-from apps.core.decorators import role_required
+from apps.core.decorators import role_required, verified_required
 from apps.core.forms import form_errors
 from apps.core.http import json_error, json_ok, parse_json
 from apps.hotels.models import Hotel, RoomType
@@ -139,6 +139,7 @@ def discount_validate_view(request):
 
 
 @role_required("guest")
+@verified_required
 def booking_create_view(request):
     """
     POST /api/bookings/
