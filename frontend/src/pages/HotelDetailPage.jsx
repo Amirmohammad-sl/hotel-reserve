@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { getHotelDetailApi, getHotelRoomsApi } from '../api/hotels'
 import BookingModal from '../components/BookingModal'
+import EmptyState from '../components/common/EmptyState'
 
 export default function HotelDetailPage() {
   const { id } = useParams()
@@ -101,17 +102,20 @@ export default function HotelDetailPage() {
 
   if (error || !hotel) {
     return (
-      <div className="max-w-xl mx-auto py-12 text-center space-y-4">
-        <div className="text-4xl">❌</div>
-        <h2 className="text-lg font-bold text-gray-800">
-          {error || 'هتل مورد نظر یافت نشد.'}
-        </h2>
-        <Link
-          to="/hotels"
-          className="inline-block px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold"
-        >
-          بازگشت به لیست هتل‌ها
-        </Link>
+      <div className="max-w-xl mx-auto py-12">
+        <EmptyState
+          icon="❌"
+          title={error || 'هتل مورد نظر یافت نشد.'}
+          description="ممکن است اطلاعات این هتل تغییر کرده باشد یا موقتاً در دسترس نباشد."
+          action={
+            <Link
+              to="/hotels"
+              className="inline-block px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              بازگشت به لیست هتل‌ها
+            </Link>
+          }
+        />
       </div>
     )
   }
@@ -224,9 +228,11 @@ export default function HotelDetailPage() {
         </div>
 
         {rooms.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-gray-500 text-sm">
-            در حال حاضر اتاقی برای این هتل ثبت نشده است.
-          </div>
+          <EmptyState
+            icon="🛏️"
+            title="هیچ نوع اتاقی یافت نشد"
+            description="در حال حاضر هیچ نوع اتاقی برای این هتل تعریف یا فعال نشده است."
+          />
         ) : (
           <div className="grid gap-4">
             {rooms.map((room) => {

@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { getManagerAvailabilityApi } from '../../api/manager'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
+import ErrorMessage from '../../components/common/ErrorMessage'
+import EmptyState from '../../components/common/EmptyState'
 
 function formatDate(d) {
   const year = d.getFullYear()
@@ -216,35 +219,19 @@ export default function AvailabilityTab({
       </div>
 
       {loading && (
-        <div className="py-16 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent" />
-          <p className="mt-3 text-sm text-gray-500">در حال محاسبه و آماده‌سازی تقویم ظرفیت...</p>
-        </div>
+        <LoadingSpinner message="در حال محاسبه و آماده‌سازی تقویم ظرفیت..." />
       )}
 
       {error && !loading && (
-        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
-          <span>{error}</span>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="text-sm underline font-medium hover:text-red-900"
-          >
-            تلاش مجدد
-          </button>
-        </div>
+        <ErrorMessage message={error} onRetry={handleSubmit} />
       )}
 
       {!loading && !error && availability.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-          <div className="text-4xl mb-3">📊</div>
-          <h3 className="text-lg font-semibold text-gray-800">
-            هیچ نوع اتاقی برای این هتل یافت نشد
-          </h3>
-          <p className="text-sm text-gray-500 mt-1">
-            برای مشاهده تقویم موجودی، ابتدا در تب «اتاق‌ها» نوع اتاق‌های هتل را تعریف نمایید.
-          </p>
-        </div>
+        <EmptyState
+          icon="📊"
+          title="هیچ نوع اتاقی برای این هتل یافت نشد"
+          description="برای مشاهده تقویم موجودی، ابتدا در تب «اتاق‌ها» نوع اتاق‌های هتل را تعریف نمایید."
+        />
       )}
 
       {!loading && !error && availability.length > 0 && (
