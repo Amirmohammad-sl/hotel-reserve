@@ -55,12 +55,12 @@
 - Depends: P4-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: End-to-end confidence.
 - Deliverables:
   - Django test-client flows (guest story, manager story); optional Vitest smoke test for `api/client.js` error normalisation (needs /decision if adding Vitest).
 - DoD:
-  - [ ] CI green; flows documented in docs/report/testing.md.
+  - [x] CI green; flows documented in docs/report/testing.md.
 
 ### P4-06 · Query & template optimisation (backend)
 - Owner: A
