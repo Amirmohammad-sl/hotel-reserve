@@ -55,7 +55,7 @@ def hotels_list_view(request):
 
     room_types_prefetch = Prefetch(
         "room_types",
-        queryset=RoomType.objects.with_availability(check_in, check_out).prefetch_related("amenities"),
+        queryset=RoomType.objects.with_availability(check_in, check_out),
     )
 
     hotels_qs = (

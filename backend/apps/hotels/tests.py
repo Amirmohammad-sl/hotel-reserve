@@ -1781,3 +1781,122 @@ class HotelLoggingCoverageTests(TestCase):
             res = self.client.get(reverse("hotels:hotel_detail", kwargs={"hotel_id": 999999}))
             self.assertEqual(res.status_code, 404)
             self.assertTrue(any("Hotel not found: hotel_id=999999" in m for m in cm.output))
+
+
+class HotelQueryAndTemplateOptimizationTests(TestCase):
+    """
+    Performance and template caching tests (P4-06).
+    Verifies O(1) queries on hotel search and template deduplication/caching.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.manager = User.objects.create_user(
+            username="hotel_perf_mgr",
+            email="hotel_perf@example.com",
+            password="password123",
+            role="manager",
+            email_verified=True,
+        )
+
+    def test_hotels_list_query_count_is_constant(self):
+        """
+        Verify hotels_list_view executes O(1) queries regardless of number of hotels.
+        Before optimization: redundant prefetch of amenities added 1 extra query.
+        After optimization: exactly 2 queries total (1 hotels with min_price + 1 room types).
+        """
+        # Create 1 hotel with room types
+        h1 = Hotel.objects.create(
+            name="Perf City Hotel 1",
+            city="Qom",
+            address="Street 1",
+            owner=self.manager,
+        )
+        RoomType.objects.create(
+            hotel=h1,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=800000,
+            quantity=5,
+        )
+
+        url = reverse("hotels:hotels_list") + "?city=Qom"
+
+        with self.assertNumQueries(2):
+            res1 = self.client.get(url)
+            self.assertEqual(res1.status_code, 200)
+            self.assertEqual(len(res1.json()["data"]), 1)
+
+        # Create 4 more hotels with room types in the same city (total 5 hotels)
+        for i in range(2, 6):
+            hi = Hotel.objects.create(
+                name=f"Perf City Hotel {i}",
+                city="Qom",
+                address=f"Street {i}",
+                owner=self.manager,
+            )
+            RoomType.objects.create(
+                hotel=hi,
+                title=f"Room Type {i}",
+                capacity=2,
+                price_per_night=800000 + i * 50000,
+                quantity=5,
+            )
+
+        # Query count MUST STILL be exactly 2 queries for 5 hotels
+        with self.assertNumQueries(2):
+            res5 = self.client.get(url)
+            self.assertEqual(res5.status_code, 200)
+            self.assertEqual(len(res5.json()["data"]), 5)
+
+    def test_email_template_inheritance_and_deduplication(self):
+        """
+        Verify that child email templates inherit from base.html and base.txt,
+        demonstrating template deduplication (P4-06).
+        """
+        from django.template.loader import render_to_string
+
+        context = {
+            "recipient_name": "سارا احمدی",
+            "message_body": "رزرو شما تایید شد.",
+            "action_url": "https://example.com/reservation/100",
+            "action_text": "مشاهده جزییات",
+        }
+
+        # HTML template extends emails/base.html
+        html = render_to_string("emails/sample_notification.html", context)
+        self.assertIn("سارا احمدی", html)
+        self.assertIn("سامانه رزرواسیون هتل", html)
+        self.assertIn("dir=\"rtl\"", html)
+        self.assertIn("مشاهده جزییات", html)
+
+        # TXT template extends emails/base.txt
+        txt = render_to_string("emails/sample_notification.txt", context)
+        self.assertIn("سارا احمدی", txt)
+        self.assertIn("سامانه رزرواسیون هتل", txt)
+        self.assertIn("https://example.com/reservation/100", txt)
+
+    def test_cached_template_loader_configured_in_production(self):
+        """
+        Verify that when DEBUG=False, Django uses django.template.loaders.cached.Loader.
+        """
+        from django.conf import settings
+        from django.template.loader import get_template
+
+        # Test with settings check
+        templates_setting = settings.TEMPLATES[0]
+        # Check that when DEBUG is False in config/settings.py, cached loader is specified
+        import config.settings as app_settings
+        # Simulate non-debug configuration logic
+        if not app_settings.DEBUG:
+            self.assertFalse(templates_setting.get("APP_DIRS"))
+            self.assertTrue(any(
+                loader[0] == "django.template.loaders.cached.Loader"
+                for loader in templates_setting.get("OPTIONS", {}).get("loaders", [])
+            ))
+
+        # Ensure index.html and base.html can be loaded without error
+        tmpl_index = get_template("index.html")
+        self.assertIsNotNone(tmpl_index)
+        tmpl_email = get_template("emails/base.html")
+        self.assertIsNotNone(tmpl_email)

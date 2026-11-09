@@ -67,12 +67,12 @@
 - Depends: P3-03, P3-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Course-required optimisation.
 - Deliverables:
   - `select_related/prefetch_related` on list endpoints; `assertNumQueries` tests; cached template loader in non-debug settings; email templates deduplicated via base template.
 - DoD:
-  - [ ] Before/after query counts for hotel list and manager bookings in journal.
+  - [x] Before/after query counts for hotel list and manager bookings in journal.
 
 ### P4-07 · Frontend optimisation + polish
 - Owner: B
