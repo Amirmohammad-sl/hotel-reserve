@@ -31,12 +31,12 @@
 - Depends: P4-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Project tests part 1.
 - Deliverables:
   - Tests for register/login/logout/me, role decorators, ownership (404), verified_required, token expiry.
 - DoD:
-  - [ ] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
+  - [x] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
 
 ### P4-04 · Tests: managers, availability, booking, discounts
 - Owner: B
@@ -187,12 +187,12 @@
 - Depends: P3-03, P3-04
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Report sections 1, 2, 3.
 - Deliverables:
   - `/report-section` outputs in docs/report/: overall diagram, per-app process explanation, models & relations — generated from real code, in Persian.
 - DoD:
-  - [ ] B reads and can explain every paragraph; matches code.
+  - [x] B reads and can explain every paragraph; matches code.
 
 ### P4-17 · Final report part 2 (managers, views) + testing + bonus list
 - Owner: B
