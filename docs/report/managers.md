@@ -153,4 +153,4 @@ discount = DiscountCode.objects.get_valid(hotel=hotel, code=code)
 - در اپلیکیشن `accounts`: کلاس `UserQuerySetTestCase` رفتار متدهای `.managers()`، `.guests()` و خطاهای اعتبارسنجی را بررسی می‌کند.
 - در اپلیکیشن `hotels`: کلاس `HotelQuerySetTestCase` و `RoomTypeQuerySetAvailabilityTests` درستی فیلترهای شهر، قیمت، زنجیره‌سازی و محاسبات همپوشانی را می‌سنجند.
 - در اپلیکیشن `bookings`: کلاس `BookingQuerySetAndDiscountManagerTests` صحت همپوشانی تاریخ‌ها، فیلترهای رزرو فعال، سقف مصرف کوپن‌ها و اسکوپ‌های دسترسی را تأیید می‌کند.
-- **نتیجه اجرای آزمون‌ها:** مجموع ۲۳۵ تست با موفقیت کامل پاس شده‌اند (`Ran 235 tests ... OK`).
+- **نتیجه اجرای آزمون‌ها:** مجموع ۲۹۹ تست با موفقیت کامل پاس شده‌اند (`Ran 299 tests ... OK`).
