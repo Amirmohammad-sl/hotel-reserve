@@ -9,7 +9,7 @@ from django.middleware.csrf import _unmask_cipher_token
 from django.test import Client, RequestFactory, TestCase, override_settings
 from apps.bookings.models import Booking, DiscountCode
 from apps.hotels.models import Amenity, Hotel, RoomType
-from .decorators import login_required_json, role_required
+from .decorators import login_required_json, role_required, verified_required
 from .forms import form_errors
 import logging
 from django.conf import settings
@@ -197,6 +197,92 @@ class DecoratorsTests(TestCase):
         req_manager = self.factory.get("/api/common/")
         req_manager.user = self.manager_user
         self.assertEqual(any_role_view(req_manager).status_code, 200)
+
+    def test_verified_required_unauthenticated(self):
+        @verified_required
+        def protected_view(request):
+            return json_ok({"verified": True})
+
+        req = self.factory.post("/api/verified-only/")
+        req.user = AnonymousUser()
+        res = protected_view(req)
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(json.loads(res.content.decode("utf-8"))["message"], "Authentication required.")
+
+    def test_verified_required_unverified_returns_403(self):
+        @verified_required
+        def protected_view(request):
+            return json_ok({"verified": True})
+
+        req = self.factory.post("/api/verified-only/")
+        self.guest_user.email_verified = False
+        self.guest_user.save()
+        req.user = self.guest_user
+        res = protected_view(req)
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("Email verification required", json.loads(res.content.decode("utf-8"))["message"])
+
+    def test_verified_required_verified_returns_200(self):
+        @verified_required
+        def protected_view(request):
+            return json_ok({"verified": True})
+
+        req = self.factory.post("/api/verified-only/")
+        self.guest_user.email_verified = True
+        self.guest_user.save()
+        req.user = self.guest_user
+        res = protected_view(req)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(json.loads(res.content.decode("utf-8"))["data"], {"verified": True})
+
+    def test_verified_required_method_filtering(self):
+        @verified_required(methods=["POST"])
+        def mixed_view(request):
+            return json_ok({"action": request.method})
+
+        self.guest_user.email_verified = False
+        self.guest_user.save()
+
+        # GET request passes even if email is unverified
+        req_get = self.factory.get("/api/mixed/")
+        req_get.user = self.guest_user
+        res_get = mixed_view(req_get)
+        self.assertEqual(res_get.status_code, 200)
+        self.assertEqual(json.loads(res_get.content.decode("utf-8"))["data"], {"action": "GET"})
+
+        # POST request is blocked when unverified
+        req_post = self.factory.post("/api/mixed/")
+        req_post.user = self.guest_user
+        res_post = mixed_view(req_post)
+        self.assertEqual(res_post.status_code, 403)
+
+        # POST request succeeds once verified
+        self.guest_user.email_verified = True
+        self.guest_user.save()
+        res_post_verified = mixed_view(req_post)
+        self.assertEqual(res_post_verified.status_code, 200)
+
+    def test_verified_required_cbv_method(self):
+        class DummyCBV:
+            @verified_required
+            def handle(self, request):
+                return json_ok({"cbv": True})
+
+        cbv = DummyCBV()
+        self.guest_user.email_verified = False
+        self.guest_user.save()
+        req = self.factory.post("/api/cbv/")
+        req.user = self.guest_user
+
+        # Unverified -> 403
+        res = cbv.handle(req)
+        self.assertEqual(res.status_code, 403)
+
+        # Verified -> 200
+        self.guest_user.email_verified = True
+        self.guest_user.save()
+        res_ok = cbv.handle(req)
+        self.assertEqual(res_ok.status_code, 200)
 
 
 class CsrfEndpointTests(TestCase):

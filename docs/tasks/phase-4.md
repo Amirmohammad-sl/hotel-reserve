@@ -31,12 +31,12 @@
 - Depends: P4-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Project tests part 1.
 - Deliverables:
   - Tests for register/login/logout/me, role decorators, ownership (404), verified_required, token expiry.
 - DoD:
-  - [ ] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
+  - [x] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
 
 ### P4-04 · Tests: managers, availability, booking, discounts
 - Owner: B
