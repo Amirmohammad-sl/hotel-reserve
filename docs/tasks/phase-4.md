@@ -199,12 +199,12 @@
 - Depends: P3-03, P3-04
 - Size: L
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Report sections 4, 5 (+ tests, bonuses, how to run).
 - Deliverables:
   - docs/report/managers.md (each manager + why), views.md (every view: URL, method, role, form, manager used), testing.md, bonuses.md.
 - DoD:
-  - [ ] A reads and can explain every paragraph; matches code.
+  - [x] A reads and can explain every paragraph; matches code.
 
 ### P4-18 · FINAL GATE (joint)
 - Owner: AB
