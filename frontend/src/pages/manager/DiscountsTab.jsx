@@ -4,6 +4,9 @@ import {
   deleteManagerDiscountApi,
 } from '../../api/manager'
 import DiscountModal from './DiscountModal'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
+import ErrorMessage from '../../components/common/ErrorMessage'
+import EmptyState from '../../components/common/EmptyState'
 
 export default function DiscountsTab({
   hotels,
@@ -147,43 +150,29 @@ export default function DiscountsTab({
       </div>
 
       {loading && (
-        <div className="py-16 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent" />
-          <p className="mt-3 text-sm text-gray-500">در حال دریافت کدهای تخفیف...</p>
-        </div>
+        <LoadingSpinner message="در حال دریافت کدهای تخفیف..." />
       )}
 
       {error && !loading && (
-        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
-          <span>{error}</span>
-          <button
-            type="button"
-            onClick={handleRefetch}
-            className="text-sm underline font-medium hover:text-red-900"
-          >
-            تلاش مجدد
-          </button>
-        </div>
+        <ErrorMessage message={error} onRetry={handleRefetch} />
       )}
 
       {!loading && !error && discounts.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-          <div className="text-4xl mb-3">🏷️</div>
-          <h3 className="text-lg font-semibold text-gray-800">
-            هنوز کد تخفیفی برای این هتل تعریف نشده است
-          </h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
-            می‌توانید کدهای تخفیف جذاب با درصد مشخص و سقف تعداد استفاده برای تشویق مهمانان به رزرو ایجاد کنید.
-          </p>
-          <button
-            type="button"
-            onClick={handleOpenCreate}
-            className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium shadow-sm transition"
-          >
-            <span>➕</span>
-            <span>ایجاد اولین کد تخفیف</span>
-          </button>
-        </div>
+        <EmptyState
+          icon="🏷️"
+          title="هنوز کد تخفیفی برای این هتل تعریف نشده است"
+          description="می‌توانید کدهای تخفیف جذاب با درصد مشخص و سقف تعداد استفاده برای تشویق مهمانان به رزرو ایجاد کنید."
+          action={
+            <button
+              type="button"
+              onClick={handleOpenCreate}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium shadow-sm transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <span>➕</span>
+              <span>ایجاد اولین کد تخفیف</span>
+            </button>
+          }
+        />
       )}
 
       {!loading && !error && discounts.length > 0 && (

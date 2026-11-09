@@ -148,15 +148,20 @@ export default function BookingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="relative bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-gray-100 overflow-hidden">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="booking-modal-title"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div className="relative bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 shadow-2xl border border-gray-100">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-gray-100">
           <div>
             <span className="text-xs text-blue-600 font-bold block mb-1">
               {hotel?.name} (📍 {hotel?.city})
             </span>
-            <h2 className="text-xl font-black text-gray-900">
+            <h2 id="booking-modal-title" className="text-xl font-black text-gray-900">
               رزرو {roomType.title}
             </h2>
           </div>

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { getMyBookingsApi, cancelBookingApi } from '../api/bookings'
+import ErrorMessage from '../components/common/ErrorMessage'
+import EmptyState from '../components/common/EmptyState'
 
 export default function MyBookingsPage() {
   const location = useLocation()
@@ -159,30 +161,28 @@ export default function MyBookingsPage() {
 
       {/* Error state */}
       {!loading && error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-700 text-xs font-medium space-y-3">
-          <p>{error}</p>
-        </div>
+        <ErrorMessage message={error} />
       )}
 
       {/* Empty state */}
       {!loading && !error && filteredBookings.length === 0 && (
-        <div className="bg-white rounded-3xl border border-gray-200 p-12 text-center space-y-4">
-          <div className="text-5xl">📑</div>
-          <h3 className="text-base font-bold text-gray-800">
-            {filterTab === 'all'
+        <EmptyState
+          icon="📑"
+          title={
+            filterTab === 'all'
               ? 'شما هنوز هیچ رزروی ثبت نکرده‌اید.'
-              : 'رزروی در این بخش یافت نشد.'}
-          </h3>
-          <p className="text-xs text-gray-500 max-w-sm mx-auto">
-            می‌توانید هتل‌های سراسر ایران را جستجو کرده و با بهترین قیمت اقامت خود را رزرو کنید.
-          </p>
-          <Link
-            to="/hotels"
-            className="inline-block px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition-colors"
-          >
-            مشاهده و جستجوی هتل‌ها
-          </Link>
-        </div>
+              : 'رزروی در این بخش یافت نشد.'
+          }
+          description="می‌توانید هتل‌های سراسر ایران را جستجو کرده و با بهترین قیمت اقامت خود را رزرو کنید."
+          action={
+            <Link
+              to="/hotels"
+              className="inline-block px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              مشاهده و جستجوی هتل‌ها
+            </Link>
+          }
+        />
       )}
 
       {/* Bookings List */}
@@ -280,11 +280,16 @@ export default function MyBookingsPage() {
 
       {/* Confirmation Modal for Cancel */}
       {confirmCancelBooking && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-modal-title"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+        >
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="text-center space-y-2">
-              <div className="text-4xl text-amber-500">⚠️</div>
-              <h3 className="text-base font-bold text-gray-900">
+              <div className="text-4xl text-amber-500" aria-hidden="true">⚠️</div>
+              <h3 id="cancel-modal-title" className="text-base font-bold text-gray-900">
                 آیا از لغو رزرو اطمینان دارید؟
               </h3>
               <p className="text-xs text-gray-500 leading-relaxed">

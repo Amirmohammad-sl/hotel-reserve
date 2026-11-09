@@ -119,16 +119,22 @@ export default function RoomTypeModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="room-type-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    >
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 text-right">
         <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
-          <h2 className="text-xl font-bold text-gray-900">
+          <h2 id="room-type-modal-title" className="text-xl font-bold text-gray-900">
             {isEditing ? 'ویرایش نوع اتاق' : 'افزودن نوع اتاق جدید'}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+            aria-label="بستن"
+            className="text-gray-400 hover:text-gray-600 text-2xl leading-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg p-1"
           >
             &times;
           </button>

@@ -98,21 +98,27 @@ export default function ManagerPage() {
       </div>
 
       {/* Tabs navigation */}
-      <div className="flex overflow-x-auto gap-2 p-1.5 bg-gray-100 rounded-2xl border border-gray-200/80">
+      <div
+        role="tablist"
+        aria-label="بخش‌های پنل مدیریت"
+        className="flex overflow-x-auto gap-2 p-1.5 bg-gray-100 rounded-2xl border border-gray-200/80"
+      >
         {TABS.map((tab) => {
           const isActive = currentTab === tab.id
           return (
             <button
               key={tab.id}
               type="button"
+              role="tab"
+              aria-selected={isActive}
               onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 isActive
                   ? 'bg-white text-blue-700 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
               }`}
             >
-              <span>{tab.icon}</span>
+              <span aria-hidden="true">{tab.icon}</span>
               <span>{tab.label}</span>
             </button>
           )
@@ -120,7 +126,7 @@ export default function ManagerPage() {
       </div>
 
       {/* Tab Contents */}
-      <div className="min-h-[450px]">
+      <div role="tabpanel" className="min-h-[450px]">
         {currentTab === 'hotels' && (
           <HotelListTab
             onSelectHotelForTab={handleSelectHotelForTab}

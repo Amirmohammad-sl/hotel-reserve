@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getHotelsApi } from '../api/hotels'
 import SearchForm from '../components/SearchForm'
+import ErrorMessage from '../components/common/ErrorMessage'
+import EmptyState from '../components/common/EmptyState'
 
 export default function HotelsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -100,6 +102,29 @@ export default function HotelsPage() {
     if (checkOutParam) nextParams.set('check_out', checkOutParam)
     if (guestsParam) nextParams.set('guests', guestsParam)
     setSearchParams(nextParams)
+  }
+
+  const handleRetry = () => {
+    setLoading(true)
+    const params = {}
+    if (cityParam) params.city = cityParam
+    if (checkInParam) params.check_in = checkInParam
+    if (checkOutParam) params.check_out = checkOutParam
+    if (guestsParam) params.guests = guestsParam
+    if (minPriceParam) params.min_price = minPriceParam
+    if (maxPriceParam) params.max_price = maxPriceParam
+    if (qParam) params.q = qParam
+    getHotelsApi(params)
+      .then((data) => {
+        setHotels(Array.isArray(data) ? data : [])
+        setError(null)
+      })
+      .catch((err) => {
+        setError(err.message || 'خطا در بارگذاری لیست هتل‌ها')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
   }
 
   const buildHotelDetailUrl = (hotelId) => {
@@ -252,56 +277,32 @@ export default function HotelsPage() {
 
           {/* Error State */}
           {!loading && error && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-700 space-y-3">
-              <p className="font-medium">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true)
-                  const params = {}
-                  if (cityParam) params.city = cityParam
-                  if (checkInParam) params.check_in = checkInParam
-                  if (checkOutParam) params.check_out = checkOutParam
-                  if (guestsParam) params.guests = guestsParam
-                  if (minPriceParam) params.min_price = minPriceParam
-                  if (maxPriceParam) params.max_price = maxPriceParam
-                  if (qParam) params.q = qParam
-                  getHotelsApi(params)
-                    .then((data) => {
-                      setHotels(Array.isArray(data) ? data : [])
-                      setError(null)
-                      setLoading(false)
-                    })
-                    .catch((err) => {
-                      setError(err.message || 'خطا در بارگذاری لیست هتل‌ها')
-                      setLoading(false)
-                    })
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                تلاش مجدد
-              </button>
-            </div>
+            <ErrorMessage
+              message={error}
+              onRetry={handleRetry}
+            />
           )}
 
           {/* Empty State */}
           {!loading && !error && hotels.length === 0 && (
-            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-4">
-              <div className="text-5xl">🔍</div>
-              <h3 className="text-lg font-bold text-gray-800">هیچ هتلی با این مشخصات یافت نشد!</h3>
-              <p className="text-sm text-gray-500 max-w-md mx-auto">
-                {checkInParam
+            <EmptyState
+              icon="🔍"
+              title="هیچ هتلی با این مشخصات یافت نشد!"
+              description={
+                checkInParam
                   ? 'ممکن است ظرفیت اتاق‌ها در تاریخ انتخابی تکمیل شده باشد یا معیارهای جستجو را خیلی محدود کرده باشید.'
-                  : 'لطفاً فیلترهای جستجو، شهر یا محدوده قیمت را تغییر دهید.'}
-              </p>
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className="px-5 py-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                مشاهده همه هتل‌ها
-              </button>
-            </div>
+                  : 'لطفاً فیلترهای جستجو، شهر یا محدوده قیمت را تغییر دهید.'
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="px-5 py-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold rounded-xl text-xs transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                  مشاهده همه هتل‌ها
+                </button>
+              }
+            />
           )}
 
           {/* Hotels Grid */}

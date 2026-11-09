@@ -79,12 +79,12 @@
 - Depends: P2-08, P2-09, P2-11
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Fast, clean UI.
 - Deliverables:
   - Route-level lazy loading, shared components cleanup, consistent loading/error/empty states, responsive pass, accessibility basics (labels, focus), 404 page.
 - DoD:
-  - [ ] `npm run build` bundle size reported before/after; Lighthouse (or manual) check noted.
+  - [x] `npm run build` bundle size reported before/after; Lighthouse (or manual) check noted.
 
 ### P4-08 · Bonus: Django Permissions & role restrictions
 - Owner: A
