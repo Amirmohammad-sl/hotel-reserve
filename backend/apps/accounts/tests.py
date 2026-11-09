@@ -17,6 +17,7 @@ from .tokens import (
     build_verification_url,
     generate_verification_token,
     get_signer,
+    send_verification_email,
     verify_token,
 )
 
@@ -891,3 +892,134 @@ class EmailVerificationTests(TestCase):
         # But unverified manager can view their hotels list -> 200
         res_get = self.client.get(url)
         self.assertEqual(res_get.status_code, 200)
+
+
+    def test_send_verification_email_handles_smtp_exception(self):
+        with patch("apps.accounts.tokens.send_mail", side_effect=RuntimeError("SMTP connection dropped")):
+            with self.assertLogs("apps.accounts.tokens", level="ERROR") as log_cm:
+                sent = send_verification_email(self.guest)
+                self.assertFalse(sent)
+                self.assertTrue(any("Failed to send verification email" in m for m in log_cm.output))
+
+    def test_resend_verification_email_failure_returns_500(self):
+        self.client.force_login(self.guest)
+        with patch("apps.accounts.views.send_verification_email", return_value=False):
+            res = self.client.post(reverse("accounts:resend-verification"))
+            self.assertEqual(res.status_code, 500)
+            self.assertIn("Failed to send verification email", res.json()["message"])
+
+    def test_build_verification_url_format(self):
+        token = generate_verification_token(self.guest)
+        url = build_verification_url(token)
+        self.assertTrue(url.startswith("http"))
+        self.assertIn("/verify-email?token=", url)
+        self.assertIn(token, url)
+
+    def test_verify_token_invalid_types_and_payloads(self):
+        # Empty or non-string
+        with self.assertRaises(BadSignature):
+            verify_token("")
+        with self.assertRaises(BadSignature):
+            verify_token(None)  # type: ignore
+
+        # Malformed non-integer payload in signed token
+        signer = get_signer()
+        bad_payload_token = signer.sign("non_integer_id")
+        with self.assertRaises(BadSignature):
+            verify_token(bad_payload_token)
+
+        # Non-existent user ID in signed token
+        ghost_user_token = signer.sign("999999")
+        with self.assertRaises(User.DoesNotExist):
+            verify_token(ghost_user_token)
+
+    def test_verify_email_endpoint_non_existent_user_returns_400(self):
+        signer = get_signer()
+        ghost_token = signer.sign("888888")
+        res = self.client.post(
+            reverse("accounts:verify-email"),
+            data=json.dumps({"token": ghost_token}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("invalid", res.json()["message"].lower())
+
+
+class AccountAuthLifecycleAndSessionContractTests(TestCase):
+    """Deliverable DoD tests: register, login, logout, me, session contracts (P4-03)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="lifecycle_user",
+            email="Lifecycle.User@example.com",
+            password="StrongPassword123!",
+            role=User.Role.GUEST,
+        )
+
+    def test_auth_me_contract_complete_keys(self):
+        # Unauthenticated: returns {"data": None}
+        res_anon = self.client.get(reverse("accounts:me"))
+        self.assertEqual(res_anon.status_code, 200)
+        self.assertEqual(res_anon.json(), {"data": None})
+
+        # Authenticated: returns exact contract dictionary
+        self.client.force_login(self.user)
+        res_auth = self.client.get(reverse("accounts:me"))
+        self.assertEqual(res_auth.status_code, 200)
+        data = res_auth.json().get("data")
+        expected_keys = {"id", "username", "email", "role", "email_verified", "last_login"}
+        self.assertEqual(set(data.keys()), expected_keys)
+        self.assertEqual(data["username"], "lifecycle_user")
+        self.assertEqual(data["email"], "Lifecycle.User@example.com")
+        self.assertEqual(data["role"], "guest")
+        self.assertFalse(data["email_verified"])
+
+    def test_login_with_case_insensitive_email(self):
+        # Login with all-lowercase email when registered with mixed-case
+        res = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "lifecycle.user@example.com",
+                "password": "StrongPassword123!",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["data"]["username"], "lifecycle_user")
+
+    def test_login_inactive_user_rejected(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        res = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "lifecycle_user",
+                "password": "StrongPassword123!",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["message"], "Invalid credentials.")
+
+    def test_logout_clears_session_and_subsequent_me_is_null(self):
+        # 1. Login
+        login_res = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "lifecycle_user",
+                "password": "StrongPassword123!",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        self.assertIn("_auth_user_id", self.client.session)
+
+        # 2. Logout
+        logout_res = self.client.post(reverse("accounts:logout"))
+        self.assertEqual(logout_res.status_code, 200)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+        # 3. Subsequent /api/auth/me/ returns null
+        me_res = self.client.get(reverse("accounts:me"))
+        self.assertEqual(me_res.status_code, 200)
+        self.assertEqual(me_res.json(), {"data": None})

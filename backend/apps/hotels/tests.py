@@ -1900,3 +1900,171 @@ class HotelQueryAndTemplateOptimizationTests(TestCase):
         self.assertIsNotNone(tmpl_index)
         tmpl_email = get_template("emails/base.html")
         self.assertIsNotNone(tmpl_email)
+
+
+
+class HotelOwnershipAndRoleRestrictionsDoDTests(TestCase):
+    """
+    Deliverable DoD tests: ownership isolation (404), role restrictions (403),
+    and unauthenticated access guards (401) on manager hotel resources (P4-03).
+    """
+
+    def setUp(self):
+        self.manager_a = User.objects.create_user(
+            username="dod_manager_a",
+            email="manager_a@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+            email_verified=True,
+        )
+        self.manager_b = User.objects.create_user(
+            username="dod_manager_b",
+            email="manager_b@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+            email_verified=True,
+        )
+        self.guest = User.objects.create_user(
+            username="dod_guest_user",
+            email="guest_user@example.com",
+            password="StrongPassword123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+
+        self.hotel_a = Hotel.objects.create(
+            owner=self.manager_a,
+            name="Manager A Hotel",
+            city="تهران",
+            address="خیابان آزادی",
+            star_rating=4,
+        )
+        self.room_a = RoomType.objects.create(
+            hotel=self.hotel_a,
+            title="اتاق یک تخته A",
+            capacity=1,
+            price_per_night=1000000,
+            quantity=5,
+        )
+
+        self.hotel_b = Hotel.objects.create(
+            owner=self.manager_b,
+            name="Manager B Hotel",
+            city="اصفهان",
+            address="چهارباغ عباسی",
+            star_rating=5,
+        )
+        self.room_b = RoomType.objects.create(
+            hotel=self.hotel_b,
+            title="سوییت رویال B",
+            capacity=2,
+            price_per_night=2500000,
+            quantity=3,
+        )
+
+    def test_manager_a_cannot_read_manager_b_hotel_detail_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.json()["message"], "Hotel not found.")
+
+    def test_manager_a_cannot_update_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        res = self.client.put(
+            url,
+            data=json.dumps({"name": "Malicious Renamed Hotel"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 404)
+        self.hotel_b.refresh_from_db()
+        self.assertEqual(self.hotel_b.name, "Manager B Hotel")
+
+    def test_manager_a_cannot_delete_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_b.id})
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 404)
+        self.assertTrue(Hotel.objects.filter(id=self.hotel_b.id).exists())
+
+    def test_manager_a_cannot_list_or_create_room_types_on_manager_b_hotel_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_b.id})
+
+        # List attempt
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, 404)
+
+        # Create attempt
+        payload = {
+            "title": "Hacked Room",
+            "capacity": 2,
+            "price_per_night": 500000,
+            "quantity": 1,
+        }
+        res_post = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res_post.status_code, 404)
+        self.assertFalse(RoomType.objects.filter(title="Hacked Room").exists())
+
+    def test_manager_a_cannot_read_update_or_delete_manager_b_room_type_returns_404(self):
+        self.client.force_login(self.manager_a)
+        url = reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.room_b.id})
+
+        # Read attempt
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, 404)
+
+        # Update attempt
+        res_put = self.client.put(
+            url,
+            data=json.dumps({"title": "Altered Room Title"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res_put.status_code, 404)
+        self.room_b.refresh_from_db()
+        self.assertEqual(self.room_b.title, "سوییت رویال B")
+
+        # Delete attempt
+        res_delete = self.client.delete(url)
+        self.assertEqual(res_delete.status_code, 404)
+        self.assertTrue(RoomType.objects.filter(id=self.room_b.id).exists())
+
+    def test_guest_forbidden_from_manager_hotel_endpoints_returns_403(self):
+        self.client.force_login(self.guest)
+        endpoints = [
+            ("GET", reverse("hotels:manager_hotels_list_create")),
+            ("POST", reverse("hotels:manager_hotels_list_create")),
+            ("GET", reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})),
+            ("PUT", reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})),
+            ("DELETE", reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})),
+            ("GET", reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id})),
+            ("GET", reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.room_a.id})),
+        ]
+        for method, url in endpoints:
+            if method == "GET":
+                res = self.client.get(url)
+            elif method == "POST":
+                res = self.client.post(url, data=json.dumps({}), content_type="application/json")
+            elif method == "PUT":
+                res = self.client.put(url, data=json.dumps({}), content_type="application/json")
+            elif method == "DELETE":
+                res = self.client.delete(url)
+            self.assertEqual(res.status_code, 403, f"Expected 403 for Guest on {method} {url}")
+            self.assertEqual(res.json()["message"], "Permission denied.")
+
+    def test_unauthenticated_request_to_manager_endpoints_returns_401(self):
+        endpoints = [
+            ("GET", reverse("hotels:manager_hotels_list_create")),
+            ("POST", reverse("hotels:manager_hotels_list_create")),
+            ("GET", reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel_a.id})),
+            ("GET", reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel_a.id})),
+            ("GET", reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": self.room_a.id})),
+        ]
+        for method, url in endpoints:
+            if method == "GET":
+                res = self.client.get(url)
+            else:
+                res = self.client.post(url, data=json.dumps({}), content_type="application/json")
+            self.assertEqual(res.status_code, 401, f"Expected 401 for Anon on {method} {url}")
+            self.assertEqual(res.json()["message"], "Authentication required.")

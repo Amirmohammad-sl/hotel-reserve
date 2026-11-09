@@ -31,12 +31,12 @@
 - Depends: P4-01
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Project tests part 1.
 - Deliverables:
   - Tests for register/login/logout/me, role decorators, ownership (404), verified_required, token expiry.
 - DoD:
-  - [ ] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
+  - [x] `manage.py test` green; coverage of accounts+hotels ≥ 70%.
 
 ### P4-04 · Tests: managers, availability, booking, discounts
 - Owner: B
@@ -55,12 +55,12 @@
 - Depends: P4-04
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: End-to-end confidence.
 - Deliverables:
   - Django test-client flows (guest story, manager story); optional Vitest smoke test for `api/client.js` error normalisation (needs /decision if adding Vitest).
 - DoD:
-  - [ ] CI green; flows documented in docs/report/testing.md.
+  - [x] CI green; flows documented in docs/report/testing.md.
 
 ### P4-06 · Query & template optimisation (backend)
 - Owner: A
