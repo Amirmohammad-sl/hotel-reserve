@@ -16,7 +16,6 @@
 - Access control through decorators in `apps/core/decorators.py`: `@login_required_json`, `@role_required("manager")`,
   `@verified_required` (P4-01). Managers may only touch THEIR hotels → filter by `owner=request.user`, return 404 (not 403) for others' objects.
 - Status codes: 200/201 ok · 400 validation · 401 not logged in · 403 wrong role/unverified · 404 · 409 conflict (no availability).
-- Pagination (P4-09): Django `Paginator`; response `{"data": [...], "pagination": {"page","pages","total","page_size"}}`.
 - Never put business rules in views if a manager/queryset/service function can hold them (from Phase 3).
 
 ## Models
