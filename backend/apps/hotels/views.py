@@ -1,1 +1,516 @@
-# Hotels views will be implemented in P2-03 per docs/API_CONTRACT.md
+"""Hotel views for public search/detail and manager CRUD operations."""
+
+import logging
+import urllib.parse
+from django.db.models import Prefetch, Q
+from django.views.decorators.http import require_GET
+
+from apps.core.decorators import role_required, verified_required
+from apps.core.forms import form_errors
+from apps.core.http import json_error, json_ok, parse_json
+from apps.hotels.forms import (
+    HotelForm,
+    RoomSearchForm,
+    RoomTypeForm,
+    SearchForm,
+    amenity_to_dict,
+    hotel_to_dict,
+    room_type_to_dict,
+)
+from apps.hotels.models import Amenity, Hotel, RoomType
+
+logger = logging.getLogger(__name__)
+security_logger = logging.getLogger("apps.security")
+
+
+@require_GET
+def cities_list_view(request):
+    """Return distinct cities of active hotels."""
+    cities = list(
+        Hotel.objects.active()
+        .values_list("city", flat=True)
+        .distinct()
+        .order_by("city")
+    )
+    logger.debug("Listed cities (count=%d)", len(cities))
+    return json_ok(cities)
+
+
+@require_GET
+def hotels_list_view(request):
+    """Search and filter public hotels."""
+    form = SearchForm(request.GET)
+    if not form.is_valid():
+        logger.info("Hotel search validation failed: %s", form_errors(form))
+        return json_error("Invalid search parameters", errors=form_errors(form), status=400)
+
+    cleaned = form.cleaned_data
+    city = cleaned.get("city")
+    check_in = cleaned.get("check_in")
+    check_out = cleaned.get("check_out")
+    guests = cleaned.get("guests") or 1
+    min_price = cleaned.get("min_price")
+    max_price = cleaned.get("max_price")
+    q = cleaned.get("q")
+
+    room_types_prefetch = Prefetch(
+        "room_types",
+        queryset=RoomType.objects.with_availability(check_in, check_out),
+    )
+
+    hotels_qs = (
+        Hotel.objects.active()
+        .in_city(city)
+        .with_min_price()
+        .prefetch_related(room_types_prefetch)
+    )
+
+    if q:
+        query_val = q.strip()
+        hotels_qs = hotels_qs.filter(
+            Q(name__icontains=query_val)
+            | Q(city__icontains=query_val)
+            | Q(address__icontains=query_val)
+            | Q(description__icontains=query_val)
+        )
+
+    hotels_list = list(hotels_qs)
+    if not hotels_list:
+        logger.debug("Hotels search returned 0 hotels for city=%s", city)
+        return json_ok([])
+
+    results = []
+    for hotel in hotels_list:
+        rts = hotel.room_types.all()
+        if not rts:
+            # Hotel has no room types defined
+            if not check_in and not min_price and not max_price:
+                results.append(
+                    {
+                        "id": hotel.id,
+                        "name": hotel.name,
+                        "city": hotel.city,
+                        "address": hotel.address,
+                        "description": hotel.description,
+                        "star_rating": hotel.star_rating,
+                        "image_url": hotel.image_url,
+                        "min_price": None,
+                        "available": True,
+                    }
+                )
+            continue
+
+        hotel_min_price = hotel.min_price
+
+        # Filter room types by capacity and price
+        matching_room_types = []
+        for rt in rts:
+            if rt.capacity < guests:
+                continue
+            if min_price is not None and rt.price_per_night < min_price:
+                continue
+            if max_price is not None and rt.price_per_night > max_price:
+                continue
+
+            if check_in and check_out:
+                if rt.available_count >= 1:
+                    matching_room_types.append(rt)
+            else:
+                matching_room_types.append(rt)
+
+        if check_in and check_out:
+            # DoD: Searching with dates excludes hotels with no room type available
+            if not matching_room_types:
+                continue
+            is_available = True
+        else:
+            if (min_price is not None or max_price is not None or guests > 1) and not matching_room_types:
+                continue
+            is_available = True
+
+        results.append(
+            {
+                "id": hotel.id,
+                "name": hotel.name,
+                "city": hotel.city,
+                "address": hotel.address,
+                "description": hotel.description,
+                "star_rating": hotel.star_rating,
+                "image_url": hotel.image_url,
+                "min_price": hotel_min_price,
+                "available": is_available,
+            }
+        )
+
+    logger.debug(
+        "Hotels search executed: city=%s check_in=%s check_out=%s guests=%s results=%d",
+        city,
+        check_in,
+        check_out,
+        guests,
+        len(results),
+    )
+    response = json_ok(results)
+    if city:
+        response.set_cookie(
+            "last_city",
+            urllib.parse.quote(city.strip()),
+            max_age=30 * 24 * 3600,
+            samesite="Lax",
+        )
+    return response
+
+
+@require_GET
+def recent_hotels_view(request):
+    """Return recently viewed hotels stored in user session."""
+    recent_ids = request.session.get("recent_hotel_ids", [])
+    if not recent_ids:
+        logger.debug("Recent hotels requested: session has no hotel ids")
+        return json_ok([])
+
+    hotels = (
+        Hotel.objects.active()
+        .filter(id__in=recent_ids)
+        .with_min_price()
+        .prefetch_related("room_types")
+    )
+    hotels_by_id = {h.id: h for h in hotels}
+
+    results = []
+    for hid in recent_ids:
+        hotel = hotels_by_id.get(hid)
+        if not hotel:
+            continue
+        results.append(
+            {
+                "id": hotel.id,
+                "name": hotel.name,
+                "city": hotel.city,
+                "address": hotel.address,
+                "description": hotel.description,
+                "star_rating": hotel.star_rating,
+                "image_url": hotel.image_url,
+                "min_price": hotel.min_price,
+                "available": True,
+            }
+        )
+
+    logger.debug("Recent hotels retrieved: count=%d for session", len(results))
+    return json_ok(results)
+
+
+@require_GET
+def hotel_detail_view(request, hotel_id):
+    """Return hotel detail with room types and amenities."""
+    hotel = (
+        Hotel.objects.active()
+        .filter(id=hotel_id)
+        .prefetch_related("room_types__amenities")
+        .first()
+    )
+    if not hotel:
+        logger.info("Hotel not found: hotel_id=%s", hotel_id)
+        return json_error("Hotel not found", status=404)
+
+    # Track recently viewed hotel id in session (LRU list, max 10)
+    recent_ids = list(request.session.get("recent_hotel_ids", []))
+    if hotel_id in recent_ids:
+        recent_ids.remove(hotel_id)
+    recent_ids.insert(0, hotel_id)
+    request.session["recent_hotel_ids"] = recent_ids[:10]
+    request.session.modified = True
+
+    room_types_data = [
+        {
+            "id": rt.id,
+            "title": rt.title,
+            "description": rt.description,
+            "capacity": rt.capacity,
+            "price_per_night": rt.price_per_night,
+            "quantity": rt.quantity,
+            "amenities": [
+                {"id": a.id, "name": a.name, "description": a.description}
+                for a in rt.amenities.all()
+            ],
+        }
+        for rt in hotel.room_types.all()
+    ]
+
+    data = {
+        "id": hotel.id,
+        "name": hotel.name,
+        "city": hotel.city,
+        "address": hotel.address,
+        "description": hotel.description,
+        "star_rating": hotel.star_rating,
+        "latitude": float(hotel.latitude) if hotel.latitude is not None else None,
+        "longitude": float(hotel.longitude) if hotel.longitude is not None else None,
+        "image_url": hotel.image_url,
+        "room_types": room_types_data,
+    }
+    logger.debug("Hotel detail viewed: hotel_id=%s name='%s'", hotel.id, hotel.name)
+    return json_ok(data)
+
+
+@require_GET
+def hotel_rooms_view(request, hotel_id):
+    """Return room types of a hotel with available_count for given dates and guests."""
+    hotel = Hotel.objects.active().filter(id=hotel_id).first()
+    if not hotel:
+        logger.info("Hotel rooms query failed: hotel not found for hotel_id=%s", hotel_id)
+        return json_error("Hotel not found", status=404)
+
+    form = RoomSearchForm(request.GET)
+    if not form.is_valid():
+        logger.info("Hotel rooms search validation failed for hotel_id=%s: %s", hotel_id, form_errors(form))
+        return json_error("Invalid parameters", errors=form_errors(form), status=400)
+
+    check_in = form.cleaned_data.get("check_in")
+    check_out = form.cleaned_data.get("check_out")
+    guests = form.cleaned_data.get("guests") or 1
+
+    room_types = (
+        hotel.room_types.with_availability(check_in, check_out)
+        .prefetch_related("amenities")
+        .all()
+    )
+
+    rooms_data = []
+    for rt in room_types:
+        avail_count = rt.available_count
+        is_available = avail_count >= 1 and rt.capacity >= guests
+
+        rooms_data.append(
+            {
+                "id": rt.id,
+                "title": rt.title,
+                "description": rt.description,
+                "capacity": rt.capacity,
+                "price_per_night": rt.price_per_night,
+                "quantity": rt.quantity,
+                "available_count": avail_count,
+                "available": is_available,
+                "amenities": [
+                    {"id": a.id, "name": a.name, "description": a.description}
+                    for a in rt.amenities.all()
+                ],
+            }
+        )
+
+    logger.debug("Hotel rooms listed: hotel_id=%s rooms_count=%d", hotel_id, len(rooms_data))
+    return json_ok(rooms_data)
+
+
+@require_GET
+def room_detail_view(request, room_id):
+    """Return room type detail with hotel summary and amenities."""
+    room_type = (
+        RoomType.objects.select_related("hotel")
+        .prefetch_related("amenities")
+        .filter(id=room_id, hotel__is_active=True)
+        .first()
+    )
+    if not room_type:
+        logger.info("Room type not found: room_id=%s", room_id)
+        return json_error("Room type not found", status=404)
+
+    data = {
+        "id": room_type.id,
+        "title": room_type.title,
+        "description": room_type.description,
+        "capacity": room_type.capacity,
+        "price_per_night": room_type.price_per_night,
+        "quantity": room_type.quantity,
+        "hotel": {
+            "id": room_type.hotel.id,
+            "name": room_type.hotel.name,
+            "city": room_type.hotel.city,
+            "address": room_type.hotel.address,
+            "star_rating": room_type.hotel.star_rating,
+            "image_url": room_type.hotel.image_url,
+        },
+        "amenities": [
+            {"id": a.id, "name": a.name, "description": a.description}
+            for a in room_type.amenities.all()
+        ],
+    }
+    logger.debug("Room type detail viewed: room_id=%s hotel_id=%s", room_type.id, room_type.hotel.id)
+    return json_ok(data)
+
+
+# ---------------------------------------------------------------------------
+# Amenities Catalogue
+# ---------------------------------------------------------------------------
+
+
+@require_GET
+def amenities_list_view(request):
+    """Return list of all amenities for forms and displays."""
+    amenities = Amenity.objects.all().order_by("name")
+    logger.debug("Amenities listed (count=%d)", amenities.count())
+    return json_ok([amenity_to_dict(a) for a in amenities])
+
+
+# ---------------------------------------------------------------------------
+# Manager Views (Owner A)
+# ---------------------------------------------------------------------------
+
+
+@role_required("manager")
+@verified_required(methods=["POST"])
+def manager_hotels_list_create_view(request):
+    """List manager's own hotels (GET) or create a new hotel (POST)."""
+    if request.method == "GET":
+        hotels = Hotel.objects.owned_by(request.user)
+        logger.debug("Manager hotels listed: user_id=%s count=%d", request.user.id, len(hotels))
+        return json_ok([hotel_to_dict(h) for h in hotels])
+
+    if request.method == "POST":
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            logger.warning("Manager hotel create failed: invalid JSON from user_id=%s error=%s", request.user.id, exc)
+            return json_error(str(exc), status=400)
+
+        form = HotelForm(data)
+        if not form.is_valid():
+            logger.warning("Manager hotel create validation failed for user_id=%s: %s", request.user.id, form_errors(form))
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        hotel = form.save(commit=False)
+        hotel.owner = request.user
+        hotel.save()
+        logger.info(
+            "Manager created hotel: hotel_id=%s name='%s' city='%s' user_id=%s",
+            hotel.id,
+            hotel.name,
+            hotel.city,
+            request.user.id,
+        )
+        return json_ok(hotel_to_dict(hotel), status=201)
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_hotel_detail_update_delete_view(request, hotel_id):
+    """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own hotel."""
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
+    if not hotel:
+        security_logger.warning("Manager hotel access denied or not found: hotel_id=%s user_id=%s", hotel_id, request.user.id)
+        return json_error("Hotel not found.", status=404)
+
+    if request.method == "GET":
+        logger.debug("Manager hotel detail viewed: hotel_id=%s user_id=%s", hotel.id, request.user.id)
+        return json_ok(hotel_to_dict(hotel, include_room_types=True))
+
+    if request.method in ("PUT", "PATCH"):
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            logger.warning("Manager hotel update failed: invalid JSON for hotel_id=%s user_id=%s error=%s", hotel_id, request.user.id, exc)
+            return json_error(str(exc), status=400)
+
+        form = HotelForm(data, instance=hotel)
+        if not form.is_valid():
+            logger.warning("Manager hotel update validation failed for hotel_id=%s user_id=%s: %s", hotel_id, request.user.id, form_errors(form))
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        hotel = form.save()
+        logger.info("Manager updated hotel: hotel_id=%s name='%s' user_id=%s", hotel.id, hotel.name, request.user.id)
+        return json_ok(hotel_to_dict(hotel, include_room_types=True))
+
+    if request.method == "DELETE":
+        hotel_name = hotel.name
+        hotel.delete()
+        logger.info("Manager deleted hotel: hotel_id=%s name='%s' user_id=%s", hotel_id, hotel_name, request.user.id)
+        return json_ok({"message": "Hotel deleted successfully."})
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_room_types_list_create_view(request, hotel_id):
+    """List room types (GET) or create a room type (POST) for a manager's own hotel."""
+    hotel = Hotel.objects.owned_by(request.user).filter(id=hotel_id).first()
+    if not hotel:
+        security_logger.warning("Manager room types hotel access denied or not found: hotel_id=%s user_id=%s", hotel_id, request.user.id)
+        return json_error("Hotel not found.", status=404)
+
+    if request.method == "GET":
+        room_types = (
+            RoomType.objects.for_hotel(hotel)
+            .prefetch_related("amenities")
+            .order_by("price_per_night")
+        )
+        logger.debug("Manager room types listed: hotel_id=%s count=%d user_id=%s", hotel_id, len(room_types), request.user.id)
+        return json_ok([room_type_to_dict(rt) for rt in room_types])
+
+    if request.method == "POST":
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            logger.warning("Manager room type create failed: invalid JSON for hotel_id=%s user_id=%s error=%s", hotel_id, request.user.id, exc)
+            return json_error(str(exc), status=400)
+
+        form = RoomTypeForm(data, hotel=hotel)
+        if not form.is_valid():
+            logger.warning("Manager room type create validation failed for hotel_id=%s user_id=%s: %s", hotel_id, request.user.id, form_errors(form))
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        room_type = form.save()
+        logger.info(
+            "Manager created room type: room_type_id=%s title='%s' hotel_id=%s user_id=%s",
+            room_type.id,
+            room_type.title,
+            hotel_id,
+            request.user.id,
+        )
+        return json_ok(room_type_to_dict(room_type), status=201)
+
+    return json_error("Method not allowed", status=405)
+
+
+@role_required("manager")
+def manager_room_type_detail_update_delete_view(request, room_type_id):
+    """Retrieve (GET), update (PUT/PATCH), or delete (DELETE) a manager's own room type."""
+    room_type = (
+        RoomType.objects.owned_by(request.user)
+        .select_related("hotel")
+        .prefetch_related("amenities")
+        .filter(id=room_type_id)
+        .first()
+    )
+    if not room_type:
+        security_logger.warning("Manager room type access denied or not found: room_type_id=%s user_id=%s", room_type_id, request.user.id)
+        return json_error("Room type not found.", status=404)
+
+    if request.method == "GET":
+        logger.debug("Manager room type detail viewed: room_type_id=%s user_id=%s", room_type.id, request.user.id)
+        return json_ok(room_type_to_dict(room_type))
+
+    if request.method in ("PUT", "PATCH"):
+        try:
+            data = parse_json(request)
+        except ValueError as exc:
+            logger.warning("Manager room type update failed: invalid JSON for room_type_id=%s user_id=%s error=%s", room_type_id, request.user.id, exc)
+            return json_error(str(exc), status=400)
+
+        form = RoomTypeForm(data, instance=room_type, hotel=room_type.hotel)
+        if not form.is_valid():
+            logger.warning("Manager room type update validation failed for room_type_id=%s user_id=%s: %s", room_type_id, request.user.id, form_errors(form))
+            return json_error("Validation failed", errors=form_errors(form), status=400)
+
+        room_type = form.save()
+        logger.info("Manager updated room type: room_type_id=%s title='%s' user_id=%s", room_type.id, room_type.title, request.user.id)
+        return json_ok(room_type_to_dict(room_type))
+
+    if request.method == "DELETE":
+        room_title = room_type.title
+        hotel_id = room_type.hotel.id
+        room_type.delete()
+        logger.info("Manager deleted room type: room_type_id=%s title='%s' hotel_id=%s user_id=%s", room_type_id, room_title, hotel_id, request.user.id)
+        return json_ok({"message": "Room type deleted successfully."})
+
+    return json_error("Method not allowed", status=405)

@@ -1,12 +1,16 @@
 # REPORT OUTLINE (گزارش تحویل فاز آخر)
 
-| بخش گزارش (طبق PDF) | منبع در ریپو | تسک | پیشرفت |
+| بخش گزارش (طبق PDF) | منبع در ریپو | تسک | وضعیت و پیشرفت |
 |---|---|---|---|
-| ۱. نمودار فرایندهای وب‌سایت | docs/PROCESS_DIAGRAMS.md → docs/report/diagrams | P1-02, P4-16 | تکمیل در فاز ۱ (P1-02) |
-| ۲. توضیح فرایندها به تفکیک وب‌اپلیکیشن | docs/report/process-per-app.md | P4-16 | |
-| ۳. مدل‌ها و روابط بین آن‌ها | docs/DATA_MODEL.md → docs/report/models.md | P1-08, P4-16 | تکمیل در فاز ۱ (P1-08) |
-| ۴. معرفی Manager ها و دلیل تعریف | docs/report/managers.md | P3-11, P4-17 | |
-| ۵. معرفی View های تعریف‌شده | docs/report/views.md | P4-17 | |
-| ضمیمه: تست‌ها، امتیازی‌ها، نحوه اجرا | docs/report/testing.md, bonuses.md, README | P4-05, P4-17 | |
+| ۱. نمودار فرایندهای وب‌سایت | docs/PROCESS_DIAGRAMS.md → docs/report/overall-diagram.md | P1-02, P4-16 | **تکمیل و بازبینی‌شده** (معماری ۵ لایه، دیاگرام توالی، ماتریس دسترسی) |
+| ۲. توضیح فرایندها به تفکیک وب‌اپلیکیشن | docs/report/process-per-app.md | P4-16 | **تکمیل و بازبینی‌شده** (فرایندهای گام‌به‌گام Core, Accounts, Hotels, Bookings) |
+| ۳. مدل‌ها و روابط بین آن‌ها | docs/DATA_MODEL.md → docs/report/models.md | P1-08, P4-16 | **تکمیل و بازبینی‌شده** (دیاگرام کامل ERD، جداول مدل‌ها، محدودیت‌ها و ایندکس‌ها) |
+| ۴. معرفی Manager ها و دلیل تعریف | docs/report/managers.md | P3-11, P4-17 | **تکمیل و بازبینی‌شده** (۵ منیجر و کوئری‌ست، تحلیل قبل/بعد و رفع N+1) |
+| ۵. معرفی View های تعریف‌شده | docs/report/views.md | P4-17 | **تکمیل و بازبینی‌شده** (جدول ۲۹ ویو و متد، فرم‌های اعتبارسنجی، تراکنش و نقش‌ها) |
+| ۶. راهنمای آزمون‌ها و کیفیت‌سنجی | docs/report/testing.md | P4-05, P4-17 | **تکمیل و بازبینی‌شده** (۳۱۳ تست خودکار، هرم آزمون، راهنمای گام‌به‌گام اجرا) |
+| **نسخه نهایی تجمیع‌شده** | docs/report/FINAL_REPORT.md و FINAL_REPORT.html | P4-18 | **تولید نهایی با اسکریپت `scripts/build_report.py` (شامل رندرر Mermaid و استایل چاپ/PDF)** |
 
-نسخه نهایی: از `docs/report/*.md` یک فایل Word/PDF بسازید (تسک P4-18). تولید هر بخش: `/report-section <name>`.
+---
+
+> **نحوه بازتولید گزارش:** جهت بازتولید فایل‌های `FINAL_REPORT.md` و `FINAL_REPORT.html` کافی است دستور زیر اجرا شود:  
+> `python scripts/build_report.py`

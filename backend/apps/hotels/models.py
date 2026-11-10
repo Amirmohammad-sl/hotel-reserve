@@ -27,8 +27,69 @@ class Amenity(models.Model):
         return self.name
 
 
+class HotelQuerySet(models.QuerySet):
+    """Custom QuerySet for Hotel queries with reusable business domain logic."""
+
+    def active(self):
+        """Filter hotels that are active (is_active=True).
+
+        WHY: Soft-deactivated hotels must be excluded from public search, listings,
+        and reservation workflows. Centralising `is_active=True` avoids scattered
+        boolean flag checks and accidental leaks of inactive hotels to guests.
+        """
+        return self.filter(is_active=True)
+
+    def in_city(self, city):
+        """Filter hotels located in a specific city (case-insensitive and trimmed).
+
+        WHY: Search queries for cities may contain extra whitespace or mixed casing
+        (e.g. ' Tehran ' vs 'tehran'). Stripping whitespace and using `iexact`
+        ensures robust matching without repeating string cleanup in view logic.
+        """
+        if not city:
+            return self
+        cleaned_city = str(city).strip()
+        return self.filter(city__iexact=cleaned_city)
+
+    def owned_by(self, user):
+        """Filter hotels owned by a specific manager user.
+
+        WHY: Crucial for multi-tenant manager security. Ensures manager-side views,
+        hotel edits, room management, and statistics strictly operate within the
+        logged-in manager's boundary, preventing horizontal privilege escalation.
+        """
+        return self.filter(owner=user)
+
+    def with_min_price(self):
+        """Annotate each hotel with `min_price`, the lowest price_per_night among its room types.
+
+        WHY: Hotel search result cards display starting prices ('From X Toman').
+        Calculating this using SQL `MIN(room_types.price_per_night)` in a single query
+        avoids the classic N+1 query problem of fetching all room types in Python.
+        """
+        return self.annotate(min_price=models.Min("room_types__price_per_night"))
+
+    def priced_between(self, min_price=None, max_price=None):
+        """Filter hotels that have at least one room type within [min_price, max_price].
+
+        WHY: Allows guests to filter hotels based on nightly room budget. Applying both
+        minimum and maximum bounds in a single `.filter()` call ensures they match against
+        the SAME room type row (avoiding the multi-valued relationship trap in Django ORM).
+        """
+        filters = {}
+        if min_price is not None:
+            filters["room_types__price_per_night__gte"] = min_price
+        if max_price is not None:
+            filters["room_types__price_per_night__lte"] = max_price
+        if filters:
+            return self.filter(**filters).distinct()
+        return self
+
+
 class Hotel(models.Model):
     """Hotel establishment managed by a user with manager role."""
+
+    objects = HotelQuerySet.as_manager()
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -105,8 +166,81 @@ class Hotel(models.Model):
         return f"{self.name} ({self.city})"
 
 
+class RoomTypeQuerySet(models.QuerySet):
+    """Custom QuerySet for RoomType providing availability calculations."""
+
+    def with_availability(self, check_in=None, check_out=None):
+        """Annotate each RoomType with 'reserved' and 'available_count' for [check_in, check_out).
+
+        WHY: Eliminates N+1 in-memory availability loops in hotel search, detail, and
+        booking flows by executing subquery aggregation at the database level.
+        Guarantees that same-day turnover (out on 5th, in on 5th) does not reduce inventory (D-006).
+        """
+        if not check_in or not check_out:
+            return self.annotate(
+                reserved=models.Value(0, output_field=models.IntegerField()),
+                available_count=models.F("quantity"),
+            )
+
+        from django.apps import apps
+
+        Booking = apps.get_model("bookings", "Booking")
+
+        overlapping_bookings = (
+            Booking.objects.active()
+            .overlapping(check_in, check_out)
+            .filter(room_type=models.OuterRef("pk"))
+            .values("room_type")
+            .annotate(total_rooms=models.Sum("rooms_count"))
+            .values("total_rooms")
+        )
+
+        return self.annotate(
+            reserved=models.functions.Coalesce(
+                models.Subquery(
+                    overlapping_bookings[:1],
+                    output_field=models.IntegerField(),
+                ),
+                models.Value(0, output_field=models.IntegerField()),
+            )
+        ).annotate(
+            available_count=models.functions.Greatest(
+                models.F("quantity") - models.F("reserved"),
+                models.Value(0, output_field=models.IntegerField()),
+                output_field=models.IntegerField(),
+            )
+        )
+
+    def available_in_range(self, check_in, check_out, rooms_count=1):
+        """Filter room types that have at least rooms_count available in the given date range.
+
+        WHY: Convenient chained filter for search queries requiring immediate inventory checks.
+        """
+        return self.with_availability(check_in, check_out).filter(
+            available_count__gte=rooms_count
+        )
+
+    def for_hotel(self, hotel):
+        """Filter room types belonging to a specific hotel instance or hotel ID.
+
+        WHY: Encapsulates hotel scoping for room types across manager and guest views.
+        """
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(hotel_id=hotel_id)
+
+    def owned_by(self, user):
+        """Filter room types belonging to hotels owned by the specified manager user.
+
+        WHY: Enforces manager-level multi-tenancy and data isolation for room type CRUD,
+        preventing foreign managers from viewing, altering, or deleting room types.
+        """
+        return self.filter(hotel__owner=user)
+
+
 class RoomType(models.Model):
     """Room category defined within a hotel."""
+
+    objects = RoomTypeQuerySet.as_manager()
 
     hotel = models.ForeignKey(
         Hotel,

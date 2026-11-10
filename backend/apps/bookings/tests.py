@@ -1,17 +1,50 @@
 import datetime
+import json
+import threading
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.bookings.admin import BookingAdmin, BookingAdminForm, DiscountCodeAdmin
+from apps.bookings.forms import (
+    BookingQuoteForm,
+    DiscountCodeForm,
+    DiscountValidateForm,
+    ManagerAvailabilityFilterForm,
+    ManagerBookingFilterForm,
+    booking_to_dict,
+    discount_code_to_dict,
+)
 from apps.bookings.models import Booking, DiscountCode
+from apps.bookings.services import (
+    AvailabilityConflictError,
+    BookingCancellationError,
+    calculate_booking_quote,
+    cancel_booking,
+    create_booking,
+    validate_discount_code,
+)
 from apps.hotels.models import Hotel, RoomType
 
 User = get_user_model()
+
+# Compatibility fix for Python 3.15+ with Django 5.x template context copy in tests
+try:
+    from django.template.context import BaseContext, Context
+    Context().__copy__()
+except AttributeError:
+    def _patched_copy(self):
+        duplicate = object.__new__(self.__class__)
+        duplicate.__dict__.update(self.__dict__)
+        duplicate.dicts = self.dicts[:]
+        return duplicate
+
+    BaseContext.__copy__ = _patched_copy
 
 
 class BookingModelTests(TestCase):
@@ -27,6 +60,7 @@ class BookingModelTests(TestCase):
             email="guest@example.com",
             password="passWORD123!",
             role=User.Role.GUEST,
+            email_verified=True,
         )
         self.hotel = Hotel.objects.create(
             owner=self.manager,
@@ -356,3 +390,2796 @@ class BookingAdminTests(TestCase):
                 200,
                 f"Changelist for bookings.{model_name} returned status {response.status_code}",
             )
+
+
+
+# ====================================================================# P2-06: Forms, Services, Views and DoD Test Suites
+# ====================================================================
+import json
+from django.utils import timezone
+from apps.bookings.forms import BookingQuoteForm, DiscountValidateForm, booking_to_dict
+from apps.bookings.services import (
+    AvailabilityConflictError,
+    BookingCancellationError,
+    calculate_booking_quote,
+    cancel_booking,
+    create_booking,
+    validate_discount_code,
+)
+
+
+# ====================================================================# Manager Tests (P2-04)
+# ====================================================================
+class DiscountCodeFormAndSerializerTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="form_mgr",
+            email="form_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Test Form Hotel",
+            city="Isfahan",
+            address="Chaharbagh",
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager,
+            name="Test Form Hotel 2",
+            city="Yazd",
+            address="Kashani",
+        )
+
+    def test_discount_code_form_valid(self):
+        data = {
+            "code": "autumn2026",
+            "percent": 25,
+            "valid_from": "2026-10-01",
+            "valid_to": "2026-10-31",
+            "max_uses": 100,
+        }
+        form = DiscountCodeForm(data=data, hotel=self.hotel)
+        self.assertTrue(form.is_valid(), form.errors)
+        discount = form.save()
+        self.assertEqual(discount.code, "AUTUMN2026")
+        self.assertEqual(discount.percent, 25)
+        self.assertEqual(discount.hotel, self.hotel)
+        self.assertTrue(discount.is_active)
+
+    def test_discount_code_form_invalid_percent(self):
+        # percent > 100
+        form = DiscountCodeForm(
+            data={"code": "HIGH", "percent": 150, "valid_from": "2026-10-01", "valid_to": "2026-10-31"},
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("percent", form.errors)
+
+        # percent < 1
+        form = DiscountCodeForm(
+            data={"code": "ZERO", "percent": 0, "valid_from": "2026-10-01", "valid_to": "2026-10-31"},
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("percent", form.errors)
+
+    def test_discount_code_form_invalid_dates(self):
+        form = DiscountCodeForm(
+            data={"code": "INV_DATE", "percent": 20, "valid_from": "2026-10-31", "valid_to": "2026-10-01"},
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("valid_to", form.errors)
+
+    def test_discount_code_form_duplicate_per_hotel(self):
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="EXISTING",
+            percent=10,
+            valid_from=datetime.date(2026, 1, 1),
+            valid_to=datetime.date(2026, 12, 31),
+        )
+        form = DiscountCodeForm(
+            data={"code": "existing", "percent": 15, "valid_from": "2026-02-01", "valid_to": "2026-03-01"},
+            hotel=self.hotel,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("code", form.errors)
+
+        # Same code for different hotel must succeed
+        form2 = DiscountCodeForm(
+            data={"code": "existing", "percent": 15, "valid_from": "2026-02-01", "valid_to": "2026-03-01"},
+            hotel=self.hotel2,
+        )
+        self.assertTrue(form2.is_valid(), form2.errors)
+
+    def test_discount_code_form_preserves_is_active_on_update(self):
+        discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="DEACTIVATE",
+            percent=10,
+            valid_from=datetime.date(2026, 1, 1),
+            valid_to=datetime.date(2026, 12, 31),
+            is_active=False,
+        )
+        # Update without is_active in payload
+        form = DiscountCodeForm(
+            data={"code": "DEACTIVATE", "percent": 12, "valid_from": "2026-01-01", "valid_to": "2026-12-31"},
+            instance=discount,
+            hotel=self.hotel,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        updated = form.save()
+        self.assertFalse(updated.is_active)
+
+    def test_discount_code_to_dict_serializer(self):
+        discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="DICT10",
+            percent=10,
+            valid_from=datetime.date(2026, 1, 1),
+            valid_to=datetime.date(2026, 12, 31),
+            max_uses=50,
+        )
+        d = discount_code_to_dict(discount)
+        self.assertEqual(d["id"], discount.id)
+        self.assertEqual(d["hotel_id"], self.hotel.id)
+        self.assertEqual(d["code"], "DICT10")
+        self.assertEqual(d["percent"], 10)
+        self.assertEqual(d["valid_from"], "2026-01-01")
+        self.assertEqual(d["valid_to"], "2026-12-31")
+        self.assertEqual(d["max_uses"], 50)
+        self.assertEqual(d["used_count"], 0)
+        self.assertTrue(d["is_active"])
+
+    def test_booking_to_dict_serializer(self):
+        guest = User.objects.create_user(
+            username="dictguest",
+            email="dictguest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        rt = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Dict Suite",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=3,
+        )
+        booking = Booking.objects.create(
+            guest=guest,
+            room_type=rt,
+            check_in=datetime.date(2026, 8, 10),
+            check_out=datetime.date(2026, 8, 12),
+            rooms_count=1,
+            guests_count=2,
+            price_per_night_snapshot=2_000_000,
+            subtotal=4_000_000,
+            total_price=4_000_000,
+        )
+        d = booking_to_dict(booking)
+        self.assertEqual(d["id"], booking.id)
+        self.assertEqual(d["guest"]["id"], guest.id)
+        self.assertEqual(d["guest"]["username"], "dictguest")
+        self.assertEqual(d["room_type"]["id"], rt.id)
+        self.assertEqual(d["check_in"], "2026-08-10")
+        self.assertEqual(d["check_out"], "2026-08-12")
+        self.assertEqual(d["nights"], 2)
+        self.assertEqual(d["status"], "confirmed")
+
+
+class ManagerDiscountViewsTests(TestCase):
+    def setUp(self):
+        self.manager1 = User.objects.create_user(
+            username="mgr_one",
+            email="mgr1@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.manager2 = User.objects.create_user(
+            username="mgr_two",
+            email="mgr2@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="guest_user",
+            email="guest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Hotel One",
+            city="Tehran",
+            address="Valiasr",
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager2,
+            name="Hotel Two",
+            city="Mashhad",
+            address="Imam Reza",
+        )
+        self.discount1 = DiscountCode.objects.create(
+            hotel=self.hotel1,
+            code="SUMMER10",
+            percent=10,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 8, 31),
+        )
+
+    def test_unauthenticated_and_guest_role_forbidden(self):
+        url = reverse("bookings:manager_hotel_discounts", kwargs={"hotel_id": self.hotel1.id})
+        # Unauthenticated -> 401
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 401)
+
+        # Guest role -> 403
+        self.client.login(username="guest_user", password="passWORD123!")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 403)
+
+    def test_manager_list_and_create_discounts(self):
+        self.client.login(username="mgr_one", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_discounts", kwargs={"hotel_id": self.hotel1.id})
+
+        # GET discounts list
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["code"], "SUMMER10")
+
+        # POST create new discount
+        payload = {
+            "code": "WINTER20",
+            "percent": 20,
+            "valid_from": "2026-12-01",
+            "valid_to": "2026-12-31",
+            "max_uses": 50,
+        }
+        res = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res.status_code, 201)
+        created = res.json()["data"]
+        self.assertEqual(created["code"], "WINTER20")
+        self.assertEqual(created["percent"], 20)
+        self.assertTrue(DiscountCode.objects.filter(hotel=self.hotel1, code="WINTER20").exists())
+
+    def test_manager_create_discount_validation_error(self):
+        self.client.login(username="mgr_one", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_discounts", kwargs={"hotel_id": self.hotel1.id})
+        # Duplicate code SUMMER10
+        payload = {
+            "code": "SUMMER10",
+            "percent": 15,
+            "valid_from": "2026-07-01",
+            "valid_to": "2026-07-31",
+        }
+        res = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res.status_code, 400)
+        errors = res.json().get("errors", {})
+        self.assertIn("code", errors)
+
+    def test_manager_cannot_access_or_modify_other_managers_discounts_returns_404(self):
+        # Manager 1 tries to list/create discounts for Manager 2's hotel -> 404
+        self.client.login(username="mgr_one", password="passWORD123!")
+        url_foreign_hotel = reverse("bookings:manager_hotel_discounts", kwargs={"hotel_id": self.hotel2.id})
+        res = self.client.get(url_foreign_hotel)
+        self.assertEqual(res.status_code, 404)
+
+        res = self.client.post(
+            url_foreign_hotel,
+            data=json.dumps({"code": "HACK", "percent": 50, "valid_from": "2026-01-01", "valid_to": "2026-12-31"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 404)
+
+        # Manager 2 tries to GET, PUT, DELETE Manager 1's discount -> 404
+        self.client.login(username="mgr_two", password="passWORD123!")
+        url_foreign_discount = reverse("bookings:manager_discount_detail", kwargs={"discount_id": self.discount1.id})
+
+        self.assertEqual(self.client.get(url_foreign_discount).status_code, 404)
+        self.assertEqual(
+            self.client.put(
+                url_foreign_discount,
+                data=json.dumps({"code": "SUMMER10", "percent": 25, "valid_from": "2026-06-01", "valid_to": "2026-08-31"}),
+                content_type="application/json",
+            ).status_code,
+            404,
+        )
+        self.assertEqual(self.client.delete(url_foreign_discount).status_code, 404)
+
+    def test_manager_discount_detail_update_delete(self):
+        self.client.login(username="mgr_one", password="passWORD123!")
+        url = reverse("bookings:manager_discount_detail", kwargs={"discount_id": self.discount1.id})
+
+        # GET detail
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["data"]["code"], "SUMMER10")
+
+        # PUT update
+        update_payload = {
+            "code": "SUMMER15",
+            "percent": 15,
+            "valid_from": "2026-06-01",
+            "valid_to": "2026-08-31",
+            "max_uses": 200,
+        }
+        res = self.client.put(url, data=json.dumps(update_payload), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["data"]["code"], "SUMMER15")
+        self.assertEqual(res.json()["data"]["percent"], 15)
+
+        # DELETE
+        res = self.client.delete(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(DiscountCode.objects.filter(id=self.discount1.id).exists())
+
+
+class ManagerBookingsViewTests(TestCase):
+    def setUp(self):
+        self.manager1 = User.objects.create_user(
+            username="mgr_b1",
+            email="mgr_b1@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.manager2 = User.objects.create_user(
+            username="mgr_b2",
+            email="mgr_b2@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="guest_b",
+            email="guest_b@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Hotel Bookings 1",
+            city="Shiraz",
+            address="Zand",
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager2,
+            name="Hotel Bookings 2",
+            city="Tabriz",
+            address="Saat Sq",
+        )
+        self.rt1 = RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Deluxe",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=5,
+        )
+        self.rt2 = RoomType.objects.create(
+            hotel=self.hotel2,
+            title="Standard",
+            capacity=2,
+            price_per_night=1_500_000,
+            quantity=3,
+        )
+        self.b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=datetime.date(2026, 9, 1),
+            check_out=datetime.date(2026, 9, 5),
+            rooms_count=1,
+            guests_count=2,
+            price_per_night_snapshot=2_000_000,
+            subtotal=8_000_000,
+            total_price=8_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        self.b2 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=datetime.date(2026, 9, 10),
+            check_out=datetime.date(2026, 9, 15),
+            rooms_count=2,
+            guests_count=4,
+            price_per_night_snapshot=2_000_000,
+            subtotal=20_000_000,
+            total_price=20_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+    def test_manager_list_bookings_own_hotel_and_filters(self):
+        self.client.login(username="mgr_b1", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_bookings", kwargs={"hotel_id": self.hotel1.id})
+
+        # List all
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.json()["data"]), 2)
+
+        # Filter by status=confirmed
+        res = self.client.get(f"{url}?status=confirmed")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["id"], self.b1.id)
+
+        # Filter by status=cancelled
+        res = self.client.get(f"{url}?status=cancelled")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["id"], self.b2.id)
+
+        # Filter by date range matching only b1
+        res = self.client.get(f"{url}?date_from=2026-09-01&date_to=2026-09-04")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["id"], self.b1.id)
+
+    def test_manager_cannot_view_other_managers_bookings_returns_404(self):
+        self.client.login(username="mgr_b1", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_bookings", kwargs={"hotel_id": self.hotel2.id})
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 404)
+
+
+class ManagerAvailabilityViewTests(TestCase):
+    def setUp(self):
+        self.manager1 = User.objects.create_user(
+            username="mgr_avail1",
+            email="mgr_avail1@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.manager2 = User.objects.create_user(
+            username="mgr_avail2",
+            email="mgr_avail2@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="guest_avail",
+            email="guest_avail@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Availability Hotel",
+            city="Kish",
+            address="Coast Rd",
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager2,
+            name="Other Hotel",
+            city="Qom",
+            address="Central",
+        )
+        # 10 rooms of Deluxe Suite
+        self.rt = RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=5_000_000,
+            quantity=10,
+        )
+
+    def test_availability_requires_valid_date_range(self):
+        self.client.login(username="mgr_avail1", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_availability", kwargs={"hotel_id": self.hotel1.id})
+
+        # Missing params -> 400
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 400)
+
+        # date_to <= date_from -> 400
+        res = self.client.get(f"{url}?date_from=2026-10-05&date_to=2026-10-01")
+        self.assertEqual(res.status_code, 400)
+
+        # Range > 90 days -> 400
+        res = self.client.get(f"{url}?date_from=2026-01-01&date_to=2026-05-01")
+        self.assertEqual(res.status_code, 400)
+
+    def test_availability_foreign_hotel_returns_404(self):
+        self.client.login(username="mgr_avail1", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_availability", kwargs={"hotel_id": self.hotel2.id})
+        res = self.client.get(f"{url}?date_from=2026-10-01&date_to=2026-10-06")
+        self.assertEqual(res.status_code, 404)
+
+    def test_availability_hand_computed_3_overlapping_bookings_dod(self):
+        """
+        DoD: Availability numbers match hand-computed example with 3 overlapping bookings.
+
+        Setup:
+        - RoomType quantity: 10
+        - Target date range: 2026-10-01 to 2026-10-06 (5 nights)
+
+        Bookings:
+        - Booking 1: 2026-10-01 to 2026-10-04 (nights 1, 2, 3), rooms_count=3, confirmed
+        - Booking 2: 2026-10-02 to 2026-10-05 (nights 2, 3, 4), rooms_count=4, confirmed
+        - Booking 3: 2026-10-03 to 2026-10-06 (nights 3, 4, 5), rooms_count=2, confirmed
+        - Booking 4 (cancelled): 2026-10-02 to 2026-10-04, rooms_count=5, cancelled (must be ignored!)
+
+        Hand calculation per night:
+        - 2026-10-01: B1(3)                      => reserved = 3, free = 10 - 3 = 7
+        - 2026-10-02: B1(3) + B2(4)              => reserved = 7, free = 10 - 7 = 3
+        - 2026-10-03: B1(3) + B2(4) + B3(2)      => reserved = 9, free = 10 - 9 = 1 (all 3 overlap!)
+        - 2026-10-04: B2(4) + B3(2)              => reserved = 6, free = 10 - 6 = 4 (B1 checked out)
+        - 2026-10-05: B3(2)                      => reserved = 2, free = 10 - 2 = 8 (B2 checked out)
+        """
+        # Booking 1
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt,
+            check_in=datetime.date(2026, 10, 1),
+            check_out=datetime.date(2026, 10, 4),
+            rooms_count=3,
+            guests_count=3,
+            price_per_night_snapshot=5_000_000,
+            subtotal=45_000_000,
+            total_price=45_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        # Booking 2
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt,
+            check_in=datetime.date(2026, 10, 2),
+            check_out=datetime.date(2026, 10, 5),
+            rooms_count=4,
+            guests_count=4,
+            price_per_night_snapshot=5_000_000,
+            subtotal=60_000_000,
+            total_price=60_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        # Booking 3
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt,
+            check_in=datetime.date(2026, 10, 3),
+            check_out=datetime.date(2026, 10, 6),
+            rooms_count=2,
+            guests_count=2,
+            price_per_night_snapshot=5_000_000,
+            subtotal=30_000_000,
+            total_price=30_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        # Booking 4 (cancelled -> must not affect availability)
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt,
+            check_in=datetime.date(2026, 10, 2),
+            check_out=datetime.date(2026, 10, 4),
+            rooms_count=5,
+            guests_count=5,
+            price_per_night_snapshot=5_000_000,
+            subtotal=50_000_000,
+            total_price=50_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+        self.client.login(username="mgr_avail1", password="passWORD123!")
+        url = reverse("bookings:manager_hotel_availability", kwargs={"hotel_id": self.hotel1.id})
+        res = self.client.get(f"{url}?date_from=2026-10-01&date_to=2026-10-06")
+        self.assertEqual(res.status_code, 200)
+
+        data = res.json()["data"]
+        self.assertEqual(len(data), 1)
+
+        rt_data = data[0]
+        self.assertEqual(rt_data["room_type_id"], self.rt.id)
+        self.assertEqual(rt_data["room_type_title"], "Deluxe Suite")
+        self.assertEqual(rt_data["total_quantity"], 10)
+
+        daily = rt_data["daily_availability"]
+        self.assertEqual(len(daily), 5)
+
+        # Expected hand-computed numbers:
+        expected = [
+            {"date": "2026-10-01", "total": 10, "reserved": 3, "free": 7},
+            {"date": "2026-10-02", "total": 10, "reserved": 7, "free": 3},
+            {"date": "2026-10-03", "total": 10, "reserved": 9, "free": 1},
+            {"date": "2026-10-04", "total": 10, "reserved": 6, "free": 4},
+            {"date": "2026-10-05", "total": 10, "reserved": 2, "free": 8},
+        ]
+
+        for idx, exp in enumerate(expected):
+            with self.subTest(date=exp["date"]):
+                self.assertEqual(daily[idx]["date"], exp["date"])
+                self.assertEqual(daily[idx]["total"], exp["total"])
+                self.assertEqual(daily[idx]["reserved"], exp["reserved"])
+                self.assertEqual(daily[idx]["free"], exp["free"])
+
+
+# ====================================================================# Guest Booking Tests (P2-06)
+# ====================================================================
+class BookingFormsTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="form_mgr",
+            email="form_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Form Hotel",
+            city="Isfahan",
+            address="Abbasi St",
+            is_active=True,
+        )
+        self.inactive_hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Inactive Hotel",
+            city="Shiraz",
+            address="Zand St",
+            is_active=False,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Double",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=5,
+        )
+        self.inactive_room_type = RoomType.objects.create(
+            hotel=self.inactive_hotel,
+            title="Old Room",
+            capacity=2,
+            price_per_night=1_000_000,
+            quantity=1,
+        )
+
+    def test_valid_booking_quote_form(self):
+        today = timezone.localdate()
+        form_data = {
+            "room_type": self.room_type.id,
+            "check_in": (today + datetime.timedelta(days=2)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=5)).isoformat(),
+            "rooms_count": 2,
+            "guests_count": 4,
+            "discount_code": " spring20 ",
+        }
+        form = BookingQuoteForm(form_data)
+        self.assertTrue(form.is_valid(), f"Errors: {form.errors}")
+        cleaned = form.cleaned_data
+        self.assertEqual(cleaned["rooms_count"], 2)
+        self.assertEqual(cleaned["guests_count"], 4)
+        self.assertEqual(cleaned["discount_code"], "SPRING20")
+
+    def test_past_check_in_rejected(self):
+        today = timezone.localdate()
+        form_data = {
+            "room_type": self.room_type.id,
+            "check_in": (today - datetime.timedelta(days=1)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=2)).isoformat(),
+            "rooms_count": 1,
+            "guests_count": 1,
+        }
+        form = BookingQuoteForm(form_data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("check_in", form.errors)
+        self.assertIn("past", form.errors["check_in"][0].lower())
+
+    def test_check_out_must_be_strictly_after_check_in(self):
+        today = timezone.localdate()
+        form_data = {
+            "room_type": self.room_type.id,
+            "check_in": (today + datetime.timedelta(days=3)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=3)).isoformat(),
+            "rooms_count": 1,
+            "guests_count": 1,
+        }
+        form = BookingQuoteForm(form_data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("check_out", form.errors)
+
+    def test_capacity_exceeded_rejected(self):
+        today = timezone.localdate()
+        form_data = {
+            "room_type": self.room_type.id,
+            "check_in": (today + datetime.timedelta(days=2)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=4)).isoformat(),
+            "rooms_count": 1,
+            "guests_count": 3,
+        }
+        form = BookingQuoteForm(form_data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("guests_count", form.errors)
+        self.assertIn("capacity", form.errors["guests_count"][0].lower())
+
+    def test_inactive_hotel_room_rejected(self):
+        today = timezone.localdate()
+        form_data = {
+            "room_type": self.inactive_room_type.id,
+            "check_in": (today + datetime.timedelta(days=1)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=3)).isoformat(),
+        }
+        form = BookingQuoteForm(form_data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("room_type", form.errors)
+
+    def test_discount_validate_form(self):
+        form = DiscountValidateForm({"hotel": self.hotel.id, "code": " welcome10 "})
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["code"], "WELCOME10")
+
+        bad_form = DiscountValidateForm({"hotel": self.inactive_hotel.id, "code": "TEST"})
+        self.assertFalse(bad_form.is_valid())
+        self.assertIn("hotel", bad_form.errors)
+
+
+class BookingServicesTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="srv_mgr",
+            email="srv_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="srv_guest",
+            email="srv_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Service Hotel",
+            city="Tabriz",
+            address="El Goli",
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1_500_000,
+            quantity=3,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="TABRIZ20",
+            percent=20,
+            valid_from=today - datetime.timedelta(days=2),
+            valid_to=today + datetime.timedelta(days=10),
+            max_uses=2,
+            used_count=0,
+            is_active=True,
+        )
+
+    def test_validate_discount_code_conditions(self):
+        today = timezone.localdate()
+        is_valid, obj, msg = validate_discount_code(self.hotel, "TABRIZ20", today=today)
+        self.assertTrue(is_valid)
+        self.assertEqual(obj, self.discount)
+
+        self.discount.is_active = False
+        self.discount.save()
+        is_valid, obj, msg = validate_discount_code(self.hotel, "TABRIZ20", today=today)
+        self.assertFalse(is_valid)
+        self.assertIn("inactive", msg)
+
+        self.discount.is_active = True
+        self.discount.valid_to = today - datetime.timedelta(days=1)
+        self.discount.save()
+        is_valid, obj, msg = validate_discount_code(self.hotel, "TABRIZ20", today=today)
+        self.assertFalse(is_valid)
+        self.assertIn("expired", msg)
+
+        self.discount.valid_to = today + datetime.timedelta(days=10)
+        self.discount.used_count = 2
+        self.discount.save()
+        is_valid, obj, msg = validate_discount_code(self.hotel, "TABRIZ20", today=today)
+        self.assertFalse(is_valid)
+        self.assertIn("maximum", msg)
+
+    def test_calculate_booking_quote(self):
+        today = timezone.localdate()
+        in_date = today + datetime.timedelta(days=3)
+        out_date = today + datetime.timedelta(days=6)
+
+        quote = calculate_booking_quote(
+            room_type=self.room_type,
+            check_in=in_date,
+            check_out=out_date,
+            rooms_count=2,
+            guests_count=4,
+            discount_code="TABRIZ20",
+        )
+        self.assertEqual(quote["nights"], 3)
+        self.assertEqual(quote["subtotal"], 9_000_000)
+        self.assertEqual(quote["discount_amount"], 1_800_000)
+        self.assertEqual(quote["total_price"], 7_200_000)
+        self.assertTrue(quote["available"])
+
+    def test_create_and_cancel_booking(self):
+        today = timezone.localdate()
+        in_date = today + datetime.timedelta(days=4)
+        out_date = today + datetime.timedelta(days=7)
+
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=in_date,
+            check_out=out_date,
+            rooms_count=2,
+            guests_count=3,
+            discount_code="TABRIZ20",
+        )
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.price_per_night_snapshot, 1_500_000)
+        self.discount.refresh_from_db()
+        self.assertEqual(self.discount.used_count, 1)
+
+        cancelled = cancel_booking(booking, self.guest)
+        self.assertEqual(cancelled.status, Booking.Status.CANCELLED)
+        self.assertIsNotNone(cancelled.cancelled_at)
+        self.discount.refresh_from_db()
+        self.assertEqual(self.discount.used_count, 0)
+
+
+class BookingViewsTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="view_mgr",
+            email="view_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="view_guest",
+            email="view_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.other_guest = User.objects.create_user(
+            username="other_guest",
+            email="other_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="View Palace",
+            city="Kish",
+            address="Persian Gulf",
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Sea View Suite",
+            capacity=2,
+            price_per_night=2_500_000,
+            quantity=2,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="KISH30",
+            percent=30,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=15),
+            max_uses=5,
+            used_count=0,
+            is_active=True,
+        )
+
+    def test_guest_role_permission_enforcement(self):
+        quote_url = reverse("bookings:quote")
+        res = self.client.post(quote_url, {}, content_type="application/json")
+        self.assertEqual(res.status_code, 401)
+
+        self.client.force_login(self.manager)
+        res = self.client.post(quote_url, {}, content_type="application/json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_quote_endpoint_success(self):
+        self.client.force_login(self.guest)
+        today = timezone.localdate()
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": (today + datetime.timedelta(days=5)).isoformat(),
+            "check_out": (today + datetime.timedelta(days=7)).isoformat(),
+            "rooms_count": 1,
+            "guests_count": 2,
+            "discount_code": "KISH30",
+        }
+        res = self.client.post(reverse("bookings:quote"), payload, content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()["data"]
+        self.assertEqual(data["nights"], 2)
+        self.assertEqual(data["subtotal"], 5_000_000)
+        self.assertEqual(data["discount_amount"], 1_500_000)
+        self.assertEqual(data["total_price"], 3_500_000)
+        self.assertTrue(data["available"])
+
+    def test_discounts_validate_endpoint(self):
+        self.client.force_login(self.guest)
+        res = self.client.post(
+            reverse("bookings:discount-validate"),
+            {"hotel": self.hotel.id, "code": "KISH30"},
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["data"]["valid"])
+        self.assertEqual(res.json()["data"]["percent"], 30)
+
+        res_invalid = self.client.post(
+            reverse("bookings:discount-validate"),
+            {"hotel": self.hotel.id, "code": "NONEXISTENT"},
+            content_type="application/json",
+        )
+        self.assertEqual(res_invalid.status_code, 200)
+        self.assertFalse(res_invalid.json()["data"]["valid"])
+        self.assertEqual(res_invalid.json()["data"]["percent"], 0)
+
+    def test_my_bookings_list_isolation(self):
+        self.client.force_login(self.guest)
+        today = timezone.localdate()
+        b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=today + datetime.timedelta(days=1),
+            check_out=today + datetime.timedelta(days=3),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=2_500_000,
+            subtotal=5_000_000,
+            total_price=5_000_000,
+        )
+        b2 = Booking.objects.create(
+            guest=self.other_guest,
+            room_type=self.room_type,
+            check_in=today + datetime.timedelta(days=10),
+            check_out=today + datetime.timedelta(days=12),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=2_500_000,
+            subtotal=5_000_000,
+            total_price=5_000_000,
+        )
+
+        res = self.client.get(reverse("bookings:bookings-mine"))
+        self.assertEqual(res.status_code, 200)
+        items = res.json()["data"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], b1.id)
+
+
+class BookingDoDTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="dod_mgr",
+            email="dod_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest1 = User.objects.create_user(
+            username="dod_guest1",
+            email="dod_guest1@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.guest2 = User.objects.create_user(
+            username="dod_guest2",
+            email="dod_guest2@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="DoD Grand",
+            city="Shiraz",
+            address="Eram Garden",
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Royal Suite",
+            capacity=2,
+            price_per_night=4_000_000,
+            quantity=2,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="DOD50",
+            percent=50,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=20),
+            max_uses=10,
+            used_count=0,
+            is_active=True,
+        )
+
+    def test_full_returns_409_and_cancel_frees_rooms_and_discount_counter(self):
+        today = timezone.localdate()
+        in_date = (today + datetime.timedelta(days=5)).isoformat()
+        out_date = (today + datetime.timedelta(days=8)).isoformat()
+
+        # Step 1: Guest 1 books all available 2 rooms with discount code
+        self.client.force_login(self.guest1)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": in_date,
+            "check_out": out_date,
+            "rooms_count": 2,
+            "guests_count": 4,
+            "discount_code": "DOD50",
+        }
+        res1 = self.client.post(reverse("bookings:booking-create"), payload, content_type="application/json")
+        self.assertEqual(res1.status_code, 201)
+        booking1_id = res1.json()["data"]["id"]
+
+        # Discount counter must have incremented to 1
+        self.discount.refresh_from_db()
+        self.assertEqual(self.discount.used_count, 1)
+
+        # Step 2: Guest 2 attempts to book 1 room for same dates -> MUST return 409 Conflict
+        self.client.force_login(self.guest2)
+        payload2 = {
+            "room_type": self.room_type.id,
+            "check_in": in_date,
+            "check_out": out_date,
+            "rooms_count": 1,
+            "guests_count": 2,
+        }
+        res2 = self.client.post(reverse("bookings:booking-create"), payload2, content_type="application/json")
+        self.assertEqual(res2.status_code, 409)
+        self.assertIn("not available", res2.json()["message"].lower())
+
+        # Step 3: Guest 1 cancels the reservation
+        self.client.force_login(self.guest1)
+        cancel_url = reverse("bookings:booking-cancel", kwargs={"booking_id": booking1_id})
+        res_cancel = self.client.post(cancel_url)
+        self.assertEqual(res_cancel.status_code, 200)
+        self.assertEqual(res_cancel.json()["data"]["status"], "cancelled")
+
+        # Discount counter must have decremented back to 0
+        self.discount.refresh_from_db()
+        self.assertEqual(self.discount.used_count, 0)
+
+        # Step 4: Cancelling freed the rooms -> Guest 2 attempts to book again -> MUST SUCCEED (201)
+        self.client.force_login(self.guest2)
+        res3 = self.client.post(reverse("bookings:booking-create"), payload2, content_type="application/json")
+        self.assertEqual(res3.status_code, 201)
+        self.assertEqual(res3.json()["data"]["status"], "confirmed")
+
+
+
+# ====================================================================# P3-02: BookingQuerySet and DiscountCodeManager Test Suites
+# ====================================================================
+
+class BookingQuerySetAndDiscountManagerTests(TestCase):
+    """Test suite for BookingQuerySet and DiscountCodeManager domain queries (P3-02)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p3_mgr",
+            email="p3_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.other_manager = User.objects.create_user(
+            username="p3_other_mgr",
+            email="p3_other_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p3_guest",
+            email="p3_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.other_guest = User.objects.create_user(
+            username="p3_other_guest",
+            email="p3_other_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="P3 Grand Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            is_active=True,
+        )
+        self.other_hotel = Hotel.objects.create(
+            owner=self.other_manager,
+            name="P3 Other Hotel",
+            city="Shiraz",
+            address="Zand St",
+            is_active=True,
+        )
+
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Executive Suite",
+            capacity=2,
+            price_per_night=3_000_000,
+            quantity=5,
+        )
+
+    def test_booking_queryset_active(self):
+        """active() returns only CONFIRMED bookings and excludes CANCELLED ones."""
+        b_confirmed = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 1),
+            check_out=datetime.date(2026, 9, 5),
+            rooms_count=1,
+            guests_count=1,
+            nights=4,
+            price_per_night_snapshot=3_000_000,
+            subtotal=12_000_000,
+            total_price=12_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+        b_cancelled = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 10),
+            check_out=datetime.date(2026, 9, 15),
+            rooms_count=1,
+            guests_count=1,
+            nights=5,
+            price_per_night_snapshot=3_000_000,
+            subtotal=15_000_000,
+            total_price=15_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+        active_qs = Booking.objects.active()
+        self.assertIn(b_confirmed, active_qs)
+        self.assertNotIn(b_cancelled, active_qs)
+
+    def test_booking_queryset_same_day_turnover_dod(self):
+        """
+        DoD: Same-day turnover (out on 5th, in on 5th) does NOT trigger an overlap.
+        """
+        # Existing booking 1st to 5th
+        b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 1),
+            check_out=datetime.date(2026, 9, 5),
+            rooms_count=2,
+            guests_count=2,
+            nights=4,
+            price_per_night_snapshot=3_000_000,
+            subtotal=24_000_000,
+            total_price=24_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Query range starting on the 5th (same day guest 1 departs)
+        turnover_in = Booking.objects.overlapping(
+            check_in=datetime.date(2026, 9, 5),
+            check_out=datetime.date(2026, 9, 10),
+        )
+        self.assertNotIn(b1, turnover_in, "Same-day arrival should not overlap with departing booking.")
+
+        # Query range ending on the 1st (same day guest 1 arrives)
+        turnover_out = Booking.objects.overlapping(
+            check_in=datetime.date(2026, 8, 25),
+            check_out=datetime.date(2026, 9, 1),
+        )
+        self.assertNotIn(b1, turnover_out, "Same-day departure should not overlap with arriving booking.")
+
+    def test_booking_queryset_overlapping_scenarios(self):
+        """Verify full, partial start, and partial end overlap scenarios."""
+        # Booking: Sep 10 to Sep 20
+        b = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 9, 10),
+            check_out=datetime.date(2026, 9, 20),
+            rooms_count=1,
+            guests_count=1,
+            nights=10,
+            price_per_night_snapshot=3_000_000,
+            subtotal=30_000_000,
+            total_price=30_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # 1. Enclosed inside: Sep 12 to Sep 18
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 12), datetime.date(2026, 9, 18)).filter(id=b.id).exists()
+        )
+        # 2. Straddling start: Sep 5 to Sep 15
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 5), datetime.date(2026, 9, 15)).filter(id=b.id).exists()
+        )
+        # 3. Straddling end: Sep 15 to Sep 25
+        self.assertTrue(
+            Booking.objects.overlapping(datetime.date(2026, 9, 15), datetime.date(2026, 9, 25)).filter(id=b.id).exists()
+        )
+        # 4. Strictly before: Sep 1 to Sep 10
+        self.assertFalse(
+            Booking.objects.overlapping(datetime.date(2026, 9, 1), datetime.date(2026, 9, 10)).filter(id=b.id).exists()
+        )
+        # 5. Strictly after: Sep 20 to Sep 25
+        self.assertFalse(
+            Booking.objects.overlapping(datetime.date(2026, 9, 20), datetime.date(2026, 9, 25)).filter(id=b.id).exists()
+        )
+
+    def test_booking_queryset_for_hotel_and_guest(self):
+        """for_hotel() and for_guest() filter isolation."""
+        b1 = Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=datetime.date(2026, 10, 1),
+            check_out=datetime.date(2026, 10, 3),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=3_000_000,
+            subtotal=6_000_000,
+            total_price=6_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        other_rt = RoomType.objects.create(
+            hotel=self.other_hotel,
+            title="Single Room",
+            price_per_night=1_000_000,
+            quantity=2,
+        )
+        b2 = Booking.objects.create(
+            guest=self.other_guest,
+            room_type=other_rt,
+            check_in=datetime.date(2026, 10, 1),
+            check_out=datetime.date(2026, 10, 3),
+            rooms_count=1,
+            guests_count=1,
+            nights=2,
+            price_per_night_snapshot=1_000_000,
+            subtotal=2_000_000,
+            total_price=2_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # for_hotel with model instance and id
+        hotel_qs = Booking.objects.for_hotel(self.hotel)
+        self.assertIn(b1, hotel_qs)
+        self.assertNotIn(b2, hotel_qs)
+        self.assertEqual(list(hotel_qs), list(Booking.objects.for_hotel(self.hotel.id)))
+
+        # for_guest with model instance and id
+        guest_qs = Booking.objects.for_guest(self.guest)
+        self.assertIn(b1, guest_qs)
+        self.assertNotIn(b2, guest_qs)
+        self.assertEqual(list(guest_qs), list(Booking.objects.for_guest(self.guest.id)))
+
+        # Chaining
+        chained_qs = Booking.objects.for_hotel(self.hotel).for_guest(self.guest).active()
+        self.assertIn(b1, chained_qs)
+
+    def test_discount_code_manager_valid_now(self):
+        """valid_now() filters by active status, date range and max uses."""
+        today = datetime.date(2026, 6, 15)
+
+        # 1. Active and valid
+        d_valid = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="VALID20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=10,
+            used_count=2,
+            is_active=True,
+        )
+        # 2. Inactive
+        d_inactive = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="INACTIVE10",
+            percent=10,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            is_active=False,
+        )
+        # 3. Expired
+        d_expired = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="EXPIRED15",
+            percent=15,
+            valid_from=datetime.date(2026, 5, 1),
+            valid_to=datetime.date(2026, 5, 31),
+            is_active=True,
+        )
+        # 4. Future
+        d_future = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="FUTURE25",
+            percent=25,
+            valid_from=datetime.date(2026, 7, 1),
+            valid_to=datetime.date(2026, 7, 31),
+            is_active=True,
+        )
+        # 5. Depleted max_uses
+        d_depleted = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="DEPLETED30",
+            percent=30,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=5,
+            used_count=5,
+            is_active=True,
+        )
+        # 6. Unlimited uses (max_uses=None)
+        d_unlimited = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="UNLIMITED5",
+            percent=5,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            max_uses=None,
+            used_count=100,
+            is_active=True,
+        )
+
+        valid_qs = DiscountCode.objects.valid_now(self.hotel, today=today)
+        self.assertIn(d_valid, valid_qs)
+        self.assertIn(d_unlimited, valid_qs)
+        self.assertNotIn(d_inactive, valid_qs)
+        self.assertNotIn(d_expired, valid_qs)
+        self.assertNotIn(d_future, valid_qs)
+        self.assertNotIn(d_depleted, valid_qs)
+
+    def test_discount_code_manager_get_valid(self):
+        """get_valid() retrieves matching normalized code or returns None."""
+        today = datetime.date(2026, 6, 15)
+        d = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SUMMER20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 6, 30),
+            is_active=True,
+        )
+
+        # Exact match
+        self.assertEqual(DiscountCode.objects.get_valid(self.hotel, "SUMMER20", today=today), d)
+        # Case insensitive and whitespace stripped
+        self.assertEqual(DiscountCode.objects.get_valid(self.hotel, "  summer20  ", today=today), d)
+        # Non-existent code
+        self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "NONEXISTENT", today=today))
+        # Empty string
+        self.assertIsNone(DiscountCode.objects.get_valid(self.hotel, "", today=today))
+        # Wrong hotel
+        self.assertIsNone(DiscountCode.objects.get_valid(self.other_hotel, "SUMMER20", today=today))
+
+    def test_discount_code_for_hotel_and_owned_by(self):
+        """DiscountCodeQuerySet.for_hotel and .owned_by scope discount codes correctly (P3-03)."""
+        dc1 = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SUMMER20",
+            percent=20,
+            valid_from=datetime.date(2026, 6, 1),
+            valid_to=datetime.date(2026, 8, 31),
+        )
+        dc2 = DiscountCode.objects.create(
+            hotel=self.other_hotel,
+            code="AUTUMN15",
+            percent=15,
+            valid_from=datetime.date(2026, 9, 1),
+            valid_to=datetime.date(2026, 11, 30),
+        )
+
+        hotel_dcs = DiscountCode.objects.for_hotel(self.hotel)
+        self.assertIn(dc1, hotel_dcs)
+        self.assertNotIn(dc2, hotel_dcs)
+
+        hotel_dcs_id = DiscountCode.objects.for_hotel(self.hotel.id)
+        self.assertIn(dc1, hotel_dcs_id)
+        self.assertNotIn(dc2, hotel_dcs_id)
+
+        mgr_dcs = DiscountCode.objects.owned_by(self.manager)
+        self.assertIn(dc1, mgr_dcs)
+        self.assertNotIn(dc2, mgr_dcs)
+
+        other_mgr_dcs = DiscountCode.objects.owned_by(self.other_manager)
+        self.assertIn(dc2, other_mgr_dcs)
+        self.assertNotIn(dc1, other_mgr_dcs)
+
+
+class GuestBookingManagerRefactorTests(TestCase):
+    """Verify that guest booking flow views and services utilize managers correctly (P3-04)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p304_b_mgr",
+            email="p304_b_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest1 = User.objects.create_user(
+            username="p304_guest1",
+            email="p304_g1@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.guest2 = User.objects.create_user(
+            username="p304_guest2",
+            email="p304_g2@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Manager Booking Hotel",
+            city="Shiraz",
+            address="Eram St",
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Executive Suite",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=1,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SPRING10",
+            percent=10,
+            valid_from=today - datetime.timedelta(days=5),
+            valid_to=today + datetime.timedelta(days=30),
+            max_uses=5,
+            used_count=0,
+            is_active=True,
+        )
+
+    def test_quote_view_with_managers(self):
+        """quote_view calculates availability and applies discount using managers."""
+        self.client.force_login(self.guest1)
+        today = timezone.localdate()
+        d_in = (today + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        d_out = (today + datetime.timedelta(days=3)).strftime("%Y-%m-%d")
+
+        url = reverse("bookings:quote")
+        res = self.client.post(
+            url,
+            data=json.dumps(
+                {
+                    "room_type": self.room_type.id,
+                    "check_in": d_in,
+                    "check_out": d_out,
+                    "rooms_count": 1,
+                    "guests_count": 2,
+                    "discount_code": "spring10",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(data["nights"], 2)
+        self.assertEqual(data["subtotal"], 4_000_000)
+        self.assertEqual(data["discount_amount"], 400_000)
+        self.assertEqual(data["total_price"], 3_600_000)
+        self.assertTrue(data["available"])
+
+    def test_booking_create_conflict_and_cancel_flow(self):
+        """End-to-end booking create, 409 conflict, and cancellation using managers."""
+        self.client.force_login(self.guest1)
+        today = timezone.localdate()
+        d_in = (today + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+        d_out = (today + datetime.timedelta(days=5)).strftime("%Y-%m-%d")
+
+        create_url = reverse("bookings:booking-create")
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": d_in,
+            "check_out": d_out,
+            "rooms_count": 1,
+            "guests_count": 2,
+            "discount_code": "SPRING10",
+        }
+
+        # Guest 1 books the only available room
+        res1 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res1.status_code, 201)
+        b1_id = res1.json().get("data")["id"]
+
+        # Guest 2 tries to book the same room for overlapping dates -> 409 Conflict
+        self.client.force_login(self.guest2)
+        res2 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res2.status_code, 409)
+
+        # Guest 2 checks 'my bookings' -> must be empty (isolated via for_guest)
+        mine_url = reverse("bookings:bookings-mine")
+        res_mine2 = self.client.get(mine_url)
+        self.assertEqual(res_mine2.status_code, 200)
+        self.assertEqual(len(res_mine2.json().get("data")), 0)
+
+        # Guest 1 checks 'my bookings' -> sees booking b1
+        self.client.force_login(self.guest1)
+        res_mine1 = self.client.get(mine_url)
+        self.assertEqual(res_mine1.status_code, 200)
+        self.assertEqual(len(res_mine1.json().get("data")), 1)
+        self.assertEqual(res_mine1.json().get("data")[0]["id"], b1_id)
+
+        # Guest 1 cancels the booking -> frees room
+        cancel_url = reverse("bookings:booking-cancel", kwargs={"booking_id": b1_id})
+        res_cancel = self.client.post(cancel_url)
+        self.assertEqual(res_cancel.status_code, 200)
+        self.assertEqual(res_cancel.json().get("data")["status"], "cancelled")
+
+        # Now Guest 2 retries booking -> succeeds (201)
+        self.client.force_login(self.guest2)
+        res3 = self.client.post(create_url, data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res3.status_code, 201)
+
+
+class BookingConcurrencyTests(TransactionTestCase):
+    """
+    P3-05: Concurrency and race condition tests for booking creation and discounts.
+    Verifies that pessimistic locking (select_for_update) inside transaction.atomic
+    serializes simultaneous requests and prevents overbooking of the last available room.
+    """
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="concurrent_mgr",
+            email="conc_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest_a = User.objects.create_user(
+            username="concurrent_guest_a",
+            email="conc_a@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.guest_b = User.objects.create_user(
+            username="concurrent_guest_b",
+            email="conc_b@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Concurrency Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            star_rating=5,
+            is_active=True,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Single Only Room",
+            price_per_night=1_000_000,
+            quantity=1,
+            capacity=2,
+        )
+
+    def test_concurrent_booking_prevents_overbooking_last_room(self):
+        """
+        Two guests simultaneously attempt to book the last remaining room (quantity=1)
+        for identical overlapping dates.
+        Pessimistic locking must ensure exactly 1 booking succeeds and 1 fails with AvailabilityConflictError.
+        """
+        today = timezone.localdate()
+        check_in = today + datetime.timedelta(days=10)
+        check_out = today + datetime.timedelta(days=12)
+
+        results = []
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def attempt_booking(guest):
+            try:
+                barrier.wait(timeout=5)
+                booking = create_booking(
+                    guest=guest,
+                    room_type=self.room_type,
+                    check_in=check_in,
+                    check_out=check_out,
+                    rooms_count=1,
+                    guests_count=1,
+                )
+                results.append(booking)
+            except AvailabilityConflictError as exc:
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        thread_a = threading.Thread(target=attempt_booking, args=(self.guest_a,))
+        thread_b = threading.Thread(target=attempt_booking, args=(self.guest_b,))
+
+        thread_a.start()
+        thread_b.start()
+
+        thread_a.join(timeout=10)
+        thread_b.join(timeout=10)
+
+        # Invariants: Exactly 1 succeeded, exactly 1 failed with conflict error
+        self.assertEqual(len(results), 1, f"Expected 1 success, got {len(results)}")
+        self.assertEqual(len(errors), 1, f"Expected 1 error, got {len(errors)}")
+        self.assertIsInstance(errors[0], AvailabilityConflictError)
+
+        # Database invariant: Only 1 confirmed booking exists for this room type
+        confirmed_count = Booking.objects.filter(
+            room_type=self.room_type,
+            status=Booking.Status.CONFIRMED,
+        ).count()
+        self.assertEqual(confirmed_count, 1)
+
+    def test_concurrent_discount_code_max_uses_limit(self):
+        """
+        Two guests simultaneously book with a discount code that has max_uses=1.
+        Pessimistic locking must guarantee that used_count never exceeds max_uses.
+        """
+        multi_room = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Multi Room",
+            price_per_night=1_000_000,
+            quantity=5,
+            capacity=2,
+        )
+        today = timezone.localdate()
+        discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="ONCEONLY",
+            percent=20,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=10),
+            max_uses=1,
+            is_active=True,
+        )
+
+        check_in = today + datetime.timedelta(days=15)
+        check_out = today + datetime.timedelta(days=17)
+
+        results = []
+        errors = []
+        barrier = threading.Barrier(2)
+
+        def attempt_booking_with_discount(guest):
+            try:
+                barrier.wait(timeout=5)
+                booking = create_booking(
+                    guest=guest,
+                    room_type=multi_room,
+                    check_in=check_in,
+                    check_out=check_out,
+                    rooms_count=1,
+                    guests_count=1,
+                    discount_code="ONCEONLY",
+                )
+                results.append(booking)
+            except ValidationError as exc:
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        thread_a = threading.Thread(target=attempt_booking_with_discount, args=(self.guest_a,))
+        thread_b = threading.Thread(target=attempt_booking_with_discount, args=(self.guest_b,))
+
+        thread_a.start()
+        thread_b.start()
+
+        thread_a.join(timeout=10)
+        thread_b.join(timeout=10)
+
+        discount.refresh_from_db()
+        self.assertEqual(discount.used_count, 1, f"used_count should be 1, got {discount.used_count}")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
+
+
+
+class BookingsLoggingCoverageTests(TestCase):
+    """Unit tests verifying logging coverage for bookings, reviews, and managers."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="log_mgr",
+            email="log_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="log_guest",
+            email="log_guest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Logging Grand Hotel",
+            city="Shiraz",
+            address="Zand Blvd",
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2_000_000,
+            quantity=1,
+        )
+        today = timezone.localdate()
+        self.discount = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="LOGDISC20",
+            percent=20,
+            valid_from=today - datetime.timedelta(days=1),
+            valid_to=today + datetime.timedelta(days=10),
+            max_uses=5,
+        )
+        self.check_in = today + datetime.timedelta(days=10)
+        self.check_out = today + datetime.timedelta(days=13)
+
+    def test_quote_view_and_service_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": self.check_in.isoformat(),
+            "check_out": self.check_out.isoformat(),
+            "rooms_count": 1,
+            "guests_count": 2,
+            "discount_code": "LOGDISC20",
+        }
+        with self.assertLogs("apps.bookings.services", level="DEBUG") as svc_logs:
+            res = self.client.post(
+                reverse("bookings:quote"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Quote calculated" in msg for msg in svc_logs.output))
+
+    def test_quote_view_validation_error_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": "invalid-date",
+            "check_out": self.check_out.isoformat(),
+        }
+        with self.assertLogs("apps.bookings.views", level="WARNING") as view_logs:
+            res = self.client.post(
+                reverse("bookings:quote"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(any("Booking quote validation failed" in msg for msg in view_logs.output))
+
+    def test_discount_validate_view_and_service_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "hotel": self.hotel.id,
+            "code": "LOGDISC20",
+        }
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(
+                    reverse("bookings:discount-validate"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Discount code applied" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Discount validation completed" in msg for msg in view_logs.output))
+
+    def test_discount_rejected_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "hotel": self.hotel.id,
+            "code": "UNKNOWN_CODE",
+        }
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            res = self.client.post(
+                reverse("bookings:discount-validate"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Discount code rejected" in msg for msg in svc_logs.output))
+
+    def test_booking_create_and_conflict_logging(self):
+        self.client.force_login(self.guest)
+        payload = {
+            "room_type": self.room_type.id,
+            "check_in": self.check_in.isoformat(),
+            "check_out": self.check_out.isoformat(),
+            "rooms_count": 1,
+            "guests_count": 2,
+        }
+        # First booking succeeds
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(
+                    reverse("bookings:booking-create"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res.status_code, 201)
+        self.assertTrue(any("Booking created" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Booking created successfully" in msg for msg in view_logs.output))
+
+        # Second booking conflicts (quantity=1 is already booked)
+        with self.assertLogs("apps.bookings.services", level="WARNING") as conflict_logs:
+            with self.assertLogs("apps.bookings.views", level="WARNING") as view_conflict_logs:
+                res_conflict = self.client.post(
+                    reverse("bookings:booking-create"),
+                    data=json.dumps(payload),
+                    content_type="application/json",
+                )
+        self.assertEqual(res_conflict.status_code, 409)
+        self.assertTrue(any("Booking conflict" in msg for msg in conflict_logs.output))
+        self.assertTrue(any("Booking create conflict" in msg for msg in view_conflict_logs.output))
+
+    def test_my_bookings_list_logging(self):
+        self.client.force_login(self.guest)
+        with self.assertLogs("apps.bookings.views", level="DEBUG") as view_logs:
+            res = self.client.get(reverse("bookings:bookings-mine"))
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Guest bookings listed" in msg for msg in view_logs.output))
+
+    def test_booking_cancel_logging(self):
+        self.client.force_login(self.guest)
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=self.check_in,
+            check_out=self.check_out,
+            rooms_count=1,
+            guests_count=1,
+            discount_code="LOGDISC20",
+        )
+        url = reverse("bookings:booking-cancel", kwargs={"booking_id": booking.id})
+        with self.assertLogs("apps.bookings.services", level="INFO") as svc_logs:
+            with self.assertLogs("apps.bookings.views", level="INFO") as view_logs:
+                res = self.client.post(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(any("Booking cancelled successfully" in msg for msg in svc_logs.output))
+        self.assertTrue(any("Booking cancelled by guest" in msg for msg in view_logs.output))
+
+    def test_booking_cancel_security_and_error_logging(self):
+        self.client.force_login(self.guest)
+        # Cancel non-existent booking
+        bad_url = reverse("bookings:booking-cancel", kwargs={"booking_id": 999999})
+        with self.assertLogs("apps.security", level="WARNING") as sec_logs:
+            res = self.client.post(bad_url)
+        self.assertEqual(res.status_code, 404)
+        self.assertTrue(any("Booking cancel denied or not found" in msg for msg in sec_logs.output))
+
+    def test_manager_methods_logging(self):
+        with self.assertLogs("apps.bookings.models", level="DEBUG") as model_logs:
+            Booking.objects.overlapping(self.check_in, self.check_out)
+            DiscountCode.objects.get_valid(self.hotel, "LOGDISC20")
+        self.assertTrue(any("BookingQuerySet.overlapping queried" in msg for msg in model_logs.output))
+        self.assertTrue(any("DiscountCodeQuerySet.get_valid queried" in msg for msg in model_logs.output))
+
+
+class BookingBusinessOverlapAndCapacityTests(TestCase):
+    """
+    [P4-04] Core business logic tests for availability, interval overlaps,
+    same-day turnover invariants, and room capacity boundary constraints.
+    """
+
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.manager = User.objects.create_user(
+            username="overlap_manager",
+            email="overlap_mgr@example.com",
+            password="Password123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="overlap_guest",
+            email="overlap_guest@example.com",
+            password="Password123!",
+            role=User.Role.GUEST,
+        )
+        self.guest2 = User.objects.create_user(
+            username="overlap_guest2",
+            email="overlap_guest2@example.com",
+            password="Password123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Shiraz Grand Hotel",
+            city="Shiraz",
+            address="Shiraz Boulevard",
+        )
+        # RoomType with quantity = 1 for strict 1-to-1 interval testing
+        self.single_room = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Single",
+            capacity=2,
+            quantity=1,
+            price_per_night=1000000,
+        )
+        # Base booking for interval tests: today + 10 days to today + 15 days
+        self.base_check_in = self.today + datetime.timedelta(days=10)
+        self.base_check_out = self.today + datetime.timedelta(days=15)
+        self.base_booking = create_booking(
+            guest=self.guest,
+            room_type=self.single_room,
+            check_in=self.base_check_in,
+            check_out=self.base_check_out,
+            rooms_count=1,
+            guests_count=1,
+        )
+
+    def test_interval_strictly_before_no_overlap(self):
+        """Case 1: Requested interval ends strictly before existing booking begins."""
+        req_in = self.today + datetime.timedelta(days=1)
+        req_out = self.today + datetime.timedelta(days=8)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 0)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["available_count"], 1)
+
+    def test_interval_strictly_after_no_overlap(self):
+        """Case 2: Requested interval begins strictly after existing booking ends."""
+        req_in = self.today + datetime.timedelta(days=18)
+        req_out = self.today + datetime.timedelta(days=25)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 0)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["available_count"], 1)
+
+    def test_interval_same_day_turnover_before(self):
+        """Case 3: Departing guest check_out equals existing booking check_in (same-day turnover)."""
+        req_in = self.today + datetime.timedelta(days=5)
+        req_out = self.base_check_in  # today + 10
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 0)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["available_count"], 1)
+
+        b = create_booking(
+            guest=self.guest2,
+            room_type=self.single_room,
+            check_in=req_in,
+            check_out=req_out,
+            rooms_count=1,
+            guests_count=1,
+        )
+        self.assertEqual(b.status, Booking.Status.CONFIRMED)
+
+    def test_interval_same_day_turnover_after(self):
+        """Case 4: Arriving guest check_in equals existing booking check_out (same-day turnover)."""
+        req_in = self.base_check_out  # today + 15
+        req_out = self.today + datetime.timedelta(days=20)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 0)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["available_count"], 1)
+
+        b = create_booking(
+            guest=self.guest2,
+            room_type=self.single_room,
+            check_in=req_in,
+            check_out=req_out,
+            rooms_count=1,
+            guests_count=1,
+        )
+        self.assertEqual(b.status, Booking.Status.CONFIRMED)
+
+    def test_interval_overlap_crosses_start(self):
+        """Case 5: Requested interval starts before and ends inside existing booking."""
+        req_in = self.today + datetime.timedelta(days=8)
+        req_out = self.today + datetime.timedelta(days=12)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 1)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["available_count"], 0)
+
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=req_in,
+                check_out=req_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_interval_overlap_crosses_end(self):
+        """Case 6: Requested interval starts inside and ends after existing booking."""
+        req_in = self.today + datetime.timedelta(days=13)
+        req_out = self.today + datetime.timedelta(days=18)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 1)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["available_count"], 0)
+
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=req_in,
+                check_out=req_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_interval_overlap_enclosed_inside(self):
+        """Case 7: Requested interval is strictly enclosed within existing booking."""
+        req_in = self.today + datetime.timedelta(days=11)
+        req_out = self.today + datetime.timedelta(days=14)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 1)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["available_count"], 0)
+
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=req_in,
+                check_out=req_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_interval_overlap_encompassing_superset(self):
+        """Case 8: Requested interval completely encompasses existing booking."""
+        req_in = self.today + datetime.timedelta(days=8)
+        req_out = self.today + datetime.timedelta(days=18)
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 1)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["available_count"], 0)
+
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=req_in,
+                check_out=req_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_interval_exact_match(self):
+        """Case 9: Requested interval exactly matches existing booking dates."""
+        req_in = self.base_check_in
+        req_out = self.base_check_out
+        overlaps = Booking.objects.active().for_hotel(self.hotel).overlapping(req_in, req_out)
+        self.assertEqual(overlaps.count(), 1)
+
+        quote = calculate_booking_quote(self.single_room, req_in, req_out, rooms_count=1)
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["available_count"], 0)
+
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=req_in,
+                check_out=req_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_consecutive_back_to_back_chain(self):
+        """Verify a chain of consecutive back-to-back bookings on a 1-room room type coexist."""
+        guest_a = User.objects.create_user(username="g_a", email="ga@test.com", password="P1!")
+        guest_b = User.objects.create_user(username="g_b", email="gb@test.com", password="P1!")
+
+        # Booking 1: today + 1 to today + 5
+        b1 = create_booking(
+            guest=guest_a,
+            room_type=self.single_room,
+            check_in=self.today + datetime.timedelta(days=1),
+            check_out=self.today + datetime.timedelta(days=5),
+            rooms_count=1,
+            guests_count=1,
+        )
+        # Booking 2: today + 5 to today + 10
+        b2 = create_booking(
+            guest=guest_b,
+            room_type=self.single_room,
+            check_in=self.today + datetime.timedelta(days=5),
+            check_out=self.today + datetime.timedelta(days=10),
+            rooms_count=1,
+            guests_count=1,
+        )
+        # Booking 3 is self.base_booking: today + 10 to today + 15
+
+        self.assertEqual(b1.status, Booking.Status.CONFIRMED)
+        self.assertEqual(b2.status, Booking.Status.CONFIRMED)
+        self.assertEqual(self.base_booking.status, Booking.Status.CONFIRMED)
+
+        # An attempt to book across seams (e.g. today + 4 to today + 6) MUST fail
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest2,
+                room_type=self.single_room,
+                check_in=self.today + datetime.timedelta(days=4),
+                check_out=self.today + datetime.timedelta(days=6),
+                rooms_count=1,
+                guests_count=1,
+            )
+
+    def test_capacity_partial_and_full_exhaustion(self):
+        """Test multi-room capacity step-by-step reservation, exhaustion, and restoration."""
+        multi_room = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Family Suite",
+            capacity=4,
+            quantity=3,
+            price_per_night=2000000,
+        )
+        d_in = self.today + datetime.timedelta(days=20)
+        d_out = self.today + datetime.timedelta(days=25)
+
+        # Step 0: Initial state (3 rooms available)
+        q0 = calculate_booking_quote(multi_room, d_in, d_out, rooms_count=1)
+        self.assertTrue(q0["available"])
+        self.assertEqual(q0["available_count"], 3)
+
+        # Step 1: Reserve 1 room (2 remain)
+        b1 = create_booking(
+            guest=self.guest,
+            room_type=multi_room,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=1,
+            guests_count=2,
+        )
+        q1 = calculate_booking_quote(multi_room, d_in, d_out, rooms_count=1)
+        self.assertTrue(q1["available"])
+        self.assertEqual(q1["available_count"], 2)
+
+        # Step 2: Reserve 2 rooms (0 remain)
+        b2 = create_booking(
+            guest=self.guest2,
+            room_type=multi_room,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=2,
+            guests_count=4,
+        )
+        q2 = calculate_booking_quote(multi_room, d_in, d_out, rooms_count=1)
+        self.assertFalse(q2["available"])
+        self.assertEqual(q2["available_count"], 0)
+
+        # Step 3: Attempting to reserve 1 more room fails
+        with self.assertRaises(AvailabilityConflictError) as ctx:
+            create_booking(
+                guest=self.guest,
+                room_type=multi_room,
+                check_in=d_in,
+                check_out=d_out,
+                rooms_count=1,
+                guests_count=1,
+            )
+        self.assertIn("only 0 available", str(ctx.exception))
+
+        # Step 4: Requesting more than total capacity (4 rooms when quantity=3) fails
+        with self.assertRaises(AvailabilityConflictError):
+            create_booking(
+                guest=self.guest,
+                room_type=multi_room,
+                check_in=self.today + datetime.timedelta(days=30),
+                check_out=self.today + datetime.timedelta(days=35),
+                rooms_count=4,
+                guests_count=4,
+            )
+
+        # Step 5: Cancel b2 (2 rooms), restoring availability to 2
+        cancel_booking(b2, user=self.guest2)
+        q3 = calculate_booking_quote(multi_room, d_in, d_out, rooms_count=2)
+        self.assertTrue(q3["available"])
+        self.assertEqual(q3["available_count"], 2)
+
+        # Step 6: Booking for 2 rooms now succeeds
+        b3 = create_booking(
+            guest=self.guest,
+            room_type=multi_room,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=2,
+            guests_count=4,
+        )
+        self.assertEqual(b3.status, Booking.Status.CONFIRMED)
+
+    def test_cancelled_booking_does_not_consume_inventory(self):
+        """Verify cancelled bookings are excluded from active overlap calculations."""
+        # Cancel base booking
+        res = cancel_booking(self.base_booking, user=self.guest)
+        self.base_booking.refresh_from_db()
+        self.assertEqual(res.status, Booking.Status.CANCELLED)
+        self.assertEqual(self.base_booking.status, Booking.Status.CANCELLED)
+
+        # Previously conflicted exact match is now 100% available
+        quote = calculate_booking_quote(
+            self.single_room,
+            self.base_check_in,
+            self.base_check_out,
+            rooms_count=1,
+        )
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["available_count"], 1)
+
+        b_new = create_booking(
+            guest=self.guest2,
+            room_type=self.single_room,
+            check_in=self.base_check_in,
+            check_out=self.base_check_out,
+            rooms_count=1,
+            guests_count=1,
+        )
+        self.assertEqual(b_new.status, Booking.Status.CONFIRMED)
+
+
+class BookingBusinessDiscountAndPricingTests(TestCase):
+    """
+    [P4-04] Core business tests for discount code rules (expired, premature,
+    inactive, max uses, wrong hotel, casing, percentages), cancellation mechanics,
+    coupon redemption restoration, and quote-to-booking total price invariants.
+    """
+
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.manager = User.objects.create_user(
+            username="disc_manager",
+            email="disc_mgr@example.com",
+            password="Password123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="disc_guest",
+            email="disc_guest@example.com",
+            password="Password123!",
+            role=User.Role.GUEST,
+        )
+        self.other_guest = User.objects.create_user(
+            username="disc_other_guest",
+            email="disc_other@example.com",
+            password="Password123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Tehran Grand Hotel",
+            city="Tehran",
+            address="Valiasr Street",
+        )
+        self.other_hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Isfahan Heritage Hotel",
+            city="Isfahan",
+            address="Chaharbagh",
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Executive Suite",
+            capacity=3,
+            quantity=5,
+            price_per_night=2500000,
+        )
+
+    def test_discount_expired(self):
+        """Discount code with valid_to in the past must be rejected."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="EXPIRED20",
+            percent=20,
+            valid_from=self.today - datetime.timedelta(days=30),
+            valid_to=self.today - datetime.timedelta(days=1),
+            is_active=True,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "EXPIRED20")
+        self.assertFalse(is_valid)
+        self.assertIn("expired", reason.lower())
+
+    def test_discount_not_yet_valid(self):
+        """Discount code with valid_from in the future must be rejected."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="FUTURE20",
+            percent=20,
+            valid_from=self.today + datetime.timedelta(days=5),
+            valid_to=self.today + datetime.timedelta(days=30),
+            is_active=True,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "FUTURE20")
+        self.assertFalse(is_valid)
+        self.assertIn("not active yet", reason.lower())
+
+    def test_discount_inactive(self):
+        """Discount code with is_active=False must be rejected."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="INACTIVE10",
+            percent=10,
+            valid_from=self.today - datetime.timedelta(days=5),
+            valid_to=self.today + datetime.timedelta(days=10),
+            is_active=False,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "INACTIVE10")
+        self.assertFalse(is_valid)
+        self.assertIn("inactive", reason.lower())
+
+    def test_discount_max_uses_reached(self):
+        """Discount code that reached max_uses must be rejected."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="MAXED50",
+            percent=50,
+            valid_from=self.today - datetime.timedelta(days=5),
+            valid_to=self.today + datetime.timedelta(days=10),
+            max_uses=2,
+            used_count=2,
+            is_active=True,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "MAXED50")
+        self.assertFalse(is_valid)
+        self.assertIn("maximum redemptions", reason.lower())
+
+    def test_discount_wrong_hotel(self):
+        """Discount code belonging to other_hotel must not be valid for self.hotel."""
+        DiscountCode.objects.create(
+            hotel=self.other_hotel,
+            code="ISFAHAN25",
+            percent=25,
+            valid_from=self.today - datetime.timedelta(days=2),
+            valid_to=self.today + datetime.timedelta(days=10),
+            is_active=True,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "ISFAHAN25")
+        self.assertFalse(is_valid)
+        self.assertIsNone(discount)
+        self.assertIn("not found for this hotel", reason.lower())
+
+    def test_discount_case_insensitivity_and_whitespace(self):
+        """Discount codes must match regardless of lowercase/uppercase and padded spaces."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="YALDA1405",
+            percent=30,
+            valid_from=self.today - datetime.timedelta(days=2),
+            valid_to=self.today + datetime.timedelta(days=10),
+            is_active=True,
+        )
+        is_valid, discount, reason = validate_discount_code(self.hotel, "  yalda1405  ")
+        self.assertTrue(is_valid)
+        self.assertIsNotNone(discount)
+        self.assertEqual(discount.code, "YALDA1405")
+        self.assertEqual(discount.percent, 30)
+
+    def test_quote_equals_booking_total_without_discount(self):
+        """Invariant: quote totals strictly match created booking totals without discount."""
+        d_in = self.today + datetime.timedelta(days=10)
+        d_out = self.today + datetime.timedelta(days=14)  # 4 nights
+        rooms = 2
+
+        quote = calculate_booking_quote(self.room_type, d_in, d_out, rooms_count=rooms)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["nights"], 4)
+        expected_subtotal = 4 * rooms * 2500000  # 20,000,000
+        self.assertEqual(quote["subtotal"], expected_subtotal)
+        self.assertEqual(quote["discount_amount"], 0)
+        self.assertEqual(quote["total_price"], expected_subtotal)
+
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=rooms,
+            guests_count=3,
+        )
+        self.assertEqual(booking.subtotal, quote["subtotal"])
+        self.assertEqual(booking.discount_amount, quote["discount_amount"])
+        self.assertEqual(booking.total_price, quote["total_price"])
+        self.assertEqual(booking.nights, quote["nights"])
+        self.assertEqual(booking.price_per_night_snapshot, self.room_type.price_per_night)
+
+    def test_quote_equals_booking_total_with_percentage_discount(self):
+        """Invariant: quote totals strictly match created booking totals with percentage discount."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SPRING25",
+            percent=25,
+            valid_from=self.today - datetime.timedelta(days=2),
+            valid_to=self.today + datetime.timedelta(days=20),
+            is_active=True,
+        )
+        d_in = self.today + datetime.timedelta(days=5)
+        d_out = self.today + datetime.timedelta(days=8)  # 3 nights
+        rooms = 1
+
+        quote = calculate_booking_quote(
+            self.room_type, d_in, d_out, rooms_count=rooms, discount_code="spring25"
+        )
+        self.assertTrue(quote["available"])
+        expected_subtotal = 3 * 1 * 2500000  # 7,500,000
+        expected_discount = int(expected_subtotal * 0.25)  # 1,875,000
+        expected_total = expected_subtotal - expected_discount  # 5,625,000
+
+        self.assertEqual(quote["subtotal"], expected_subtotal)
+        self.assertEqual(quote["discount_amount"], expected_discount)
+        self.assertEqual(quote["total_price"], expected_total)
+
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=rooms,
+            guests_count=2,
+            discount_code="spring25",
+        )
+        self.assertEqual(booking.subtotal, quote["subtotal"])
+        self.assertEqual(booking.discount_amount, quote["discount_amount"])
+        self.assertEqual(booking.total_price, quote["total_price"])
+        self.assertIsNotNone(booking.discount_code)
+        self.assertEqual(booking.discount_code.percent, 25)
+
+    def test_hundred_percent_discount_code(self):
+        """100% discount yields 0 total_price without integer arithmetic defects."""
+        DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="FREE100",
+            percent=100,
+            valid_from=self.today - datetime.timedelta(days=1),
+            valid_to=self.today + datetime.timedelta(days=10),
+            is_active=True,
+        )
+        d_in = self.today + datetime.timedelta(days=12)
+        d_out = self.today + datetime.timedelta(days=14)
+
+        quote = calculate_booking_quote(
+            self.room_type, d_in, d_out, rooms_count=1, discount_code="free100"
+        )
+        self.assertEqual(quote["discount_amount"], quote["subtotal"])
+        self.assertEqual(quote["total_price"], 0)
+
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=1,
+            guests_count=1,
+            discount_code="FREE100",
+        )
+        self.assertEqual(booking.total_price, 0)
+        self.assertEqual(booking.discount_amount, booking.subtotal)
+
+    def test_cancel_restores_single_use_discount_code(self):
+        """When booking with max_uses=1 coupon is cancelled, used_count decrements and coupon is reusable."""
+        dc = DiscountCode.objects.create(
+            hotel=self.hotel,
+            code="SINGLEUSE",
+            percent=15,
+            valid_from=self.today - datetime.timedelta(days=2),
+            valid_to=self.today + datetime.timedelta(days=10),
+            max_uses=1,
+            used_count=0,
+            is_active=True,
+        )
+        d_in = self.today + datetime.timedelta(days=4)
+        d_out = self.today + datetime.timedelta(days=7)
+
+        # 1. Guest 1 books with SINGLEUSE
+        b1 = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=1,
+            guests_count=1,
+            discount_code="SINGLEUSE",
+        )
+        dc.refresh_from_db()
+        self.assertEqual(dc.used_count, 1)
+
+        # 2. Guest 2 attempts to use SINGLEUSE -> rejected (max uses reached)
+        is_valid, discount, reason = validate_discount_code(self.hotel, "SINGLEUSE")
+        self.assertFalse(is_valid)
+
+        # 3. Guest 1 cancels b1 -> used_count decrements back to 0
+        cancel_booking(b1, user=self.guest)
+        dc.refresh_from_db()
+        self.assertEqual(dc.used_count, 0)
+
+        # 4. Guest 2 now successfully validates and books with SINGLEUSE
+        is_valid2, discount2, reason2 = validate_discount_code(self.hotel, "SINGLEUSE")
+        self.assertTrue(is_valid2)
+        b2 = create_booking(
+            guest=self.other_guest,
+            room_type=self.room_type,
+            check_in=self.today + datetime.timedelta(days=15),
+            check_out=self.today + datetime.timedelta(days=18),
+            rooms_count=1,
+            guests_count=1,
+            discount_code="SINGLEUSE",
+        )
+        dc.refresh_from_db()
+        self.assertEqual(dc.used_count, 1)
+
+    def test_cancellation_permission_and_idempotency_checks(self):
+        """Test forbidden cancellation by third-party user and duplicate cancellation prevention."""
+        d_in = self.today + datetime.timedelta(days=5)
+        d_out = self.today + datetime.timedelta(days=8)
+        booking = create_booking(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=d_in,
+            check_out=d_out,
+            rooms_count=1,
+            guests_count=1,
+        )
+
+        # Unauthorized user cancellation raises BookingCancellationError
+        with self.assertRaises(BookingCancellationError) as ctx:
+            cancel_booking(booking, user=self.other_guest)
+        self.assertIn("permission", str(ctx.exception).lower())
+
+        # Legitimate cancellation succeeds
+        cancel_booking(booking, user=self.guest)
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CANCELLED)
+
+        # Re-cancellation raises BookingCancellationError (already cancelled)
+        with self.assertRaises(BookingCancellationError) as ctx2:
+            cancel_booking(booking, user=self.guest)
+        self.assertIn("already cancelled", str(ctx2.exception).lower())
+
+
+class BookingBusinessConcurrencyStressTests(TransactionTestCase):
+    """
+    [P4-04] Advanced multi-threaded stress and contention tests.
+    Verifies pessimistic row-level locking behavior across multiple concurrent workers (4 threads)
+    competing for limited room inventory simultaneously.
+    """
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="stress_mgr",
+            email="stress_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Stress Test Hotel",
+            city="Tabriz",
+            address="El Goli Blvd",
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Limited Inventory Room",
+            price_per_night=1_000_000,
+            quantity=2,  # Exactly 2 rooms
+            capacity=2,
+        )
+        self.guests = [
+            User.objects.create_user(
+                username=f"stress_guest_{i}",
+                email=f"guest_{i}@example.com",
+                password="passWORD123!",
+                role=User.Role.GUEST,
+            )
+            for i in range(4)
+        ]
+
+    def test_four_threads_competing_for_two_rooms(self):
+        """
+        4 concurrent guest threads simultaneously attempt to book a room type
+        with only quantity=2 available for the same dates.
+        Strict invariant: exactly 2 succeed, exactly 2 receive AvailabilityConflictError.
+        """
+        today = timezone.localdate()
+        check_in = today + datetime.timedelta(days=20)
+        check_out = today + datetime.timedelta(days=22)
+
+        barrier = threading.Barrier(4)
+        results = []
+        errors = []
+        lock = threading.Lock()
+
+        def attempt_booking(guest):
+            try:
+                barrier.wait(timeout=5)
+                booking = create_booking(
+                    guest=guest,
+                    room_type=self.room_type,
+                    check_in=check_in,
+                    check_out=check_out,
+                    rooms_count=1,
+                    guests_count=1,
+                )
+                with lock:
+                    results.append(booking)
+            except AvailabilityConflictError as exc:
+                with lock:
+                    errors.append(exc)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=attempt_booking, args=(g,)) for g in self.guests]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+
+        self.assertEqual(len(results), 2, f"Expected 2 successes, got {len(results)}")
+        self.assertEqual(len(errors), 2, f"Expected 2 conflict errors, got {len(errors)}")
+
+        confirmed_count = Booking.objects.filter(
+            room_type=self.room_type,
+            status=Booking.Status.CONFIRMED,
+        ).count()
+        self.assertEqual(confirmed_count, 2)
+
+
+
+class BookingQueryOptimizationTests(TestCase):
+    """
+    Performance and query count regression tests for booking endpoints (P4-06).
+    Verifies elimination of N+1 database queries on list endpoints.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.manager = User.objects.create_user(
+            username="perf_manager",
+            email="perf_mgr@example.com",
+            password="password123",
+            role="manager",
+            email_verified=True,
+        )
+        self.guest = User.objects.create_user(
+            username="perf_guest",
+            email="perf_gst@example.com",
+            password="password123",
+            role="guest",
+            email_verified=True,
+        )
+        self.hotel = Hotel.objects.create(
+            name="Perf Optimization Hotel",
+            city="Isfahan",
+            address="Perf Ave",
+            owner=self.manager,
+        )
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=1500000,
+            quantity=10,
+        )
+
+    def test_manager_hotel_bookings_query_count_is_constant(self):
+        """
+        Verify manager_hotel_bookings_list_view executes O(1) queries regardless of bookings count.
+        Before optimization: select_related was missing room_type__hotel, resulting in 4 + N queries.
+        After optimization: exactly 4 queries total (2 session/user + 1 hotel check + 1 bookings join).
+        """
+        today = datetime.date.today()
+
+        # 1 booking baseline
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.room_type,
+            check_in=today,
+            check_out=today + datetime.timedelta(days=2),
+            rooms_count=1,
+            guests_count=1,
+            price_per_night_snapshot=1500000,
+            subtotal=3000000,
+            discount_amount=0,
+            total_price=3000000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.manager)
+        url = reverse("bookings:manager_hotel_bookings", kwargs={"hotel_id": self.hotel.id})
+
+        with self.assertNumQueries(4):
+            res1 = self.client.get(url)
+            self.assertEqual(res1.status_code, 200)
+            self.assertEqual(len(res1.json()["data"]), 1)
+
+        # Create 4 additional bookings (total 5)
+        for i in range(1, 5):
+            Booking.objects.create(
+                guest=self.guest,
+                room_type=self.room_type,
+                check_in=today + datetime.timedelta(days=i * 3),
+                check_out=today + datetime.timedelta(days=i * 3 + 2),
+                rooms_count=1,
+                guests_count=1,
+                price_per_night_snapshot=1500000,
+                subtotal=3000000,
+                discount_amount=0,
+                total_price=3000000,
+                status=Booking.Status.CONFIRMED,
+            )
+
+        # Query count MUST STILL be exactly 4 queries with 5 bookings (no N+1!)
+        with self.assertNumQueries(4):
+            res5 = self.client.get(url)
+            self.assertEqual(res5.status_code, 200)
+            self.assertEqual(len(res5.json()["data"]), 5)
+
+    def test_guest_my_bookings_query_count_is_constant(self):
+        """
+        Verify my_bookings_list_view executes O(1) queries regardless of bookings count.
+        Before optimization: select_related was missing guest, resulting in 3 + N queries.
+        After optimization: exactly 3 queries total (2 session/user + 1 bookings join).
+        """
+        today = datetime.date.today()
+
+        # Create 5 bookings
+        for i in range(5):
+            Booking.objects.create(
+                guest=self.guest,
+                room_type=self.room_type,
+                check_in=today + datetime.timedelta(days=i * 3),
+                check_out=today + datetime.timedelta(days=i * 3 + 2),
+                rooms_count=1,
+                guests_count=1,
+                price_per_night_snapshot=1500000,
+                subtotal=3000000,
+                discount_amount=0,
+                total_price=3000000,
+                status=Booking.Status.CONFIRMED,
+            )
+
+        self.client.force_login(self.guest)
+        url = reverse("bookings:bookings-mine")
+
+        with self.assertNumQueries(3):
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(len(res.json()["data"]), 5)

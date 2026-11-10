@@ -34,10 +34,8 @@ Add new ones with `/decision`. Status: PROPOSED | ACCEPTED | SUPERSEDED.
 ## D-008 — Squash merge, merge-main-into-branch (no rebase), no force push — PARTIALLY SUPERSEDED by D-010 (merge methods)
 - Reason: two beginners, linear `main`, one commit per task.
 
-## D-009 — Bonus selection (priority) — ACCEPTED
-1. Must-do bonuses (cheap, in course list): Permissions, Pagination, Fetch/AJAX, per-role dashboards.
-2. Then hotel-specific: booking confirmation email, reviews & ratings.
-3. Then optional: map, calendar, recommendations. SMS verification is skipped.
+## D-009 — Bonus selection — SUPERSEDED (Scoped Out)
+- Status: SUPERSEDED. By team decision, all Phase 4 bonus and optional tasks were scoped out to ensure 100% test coverage, stability, and clean completion of all mandatory course requirements.
 
 ## D-010 — Phase-branch model (stacked long-lived branches) — ACCEPTED
 - Context: we want to finish early but deliver each phase on its own deadline.

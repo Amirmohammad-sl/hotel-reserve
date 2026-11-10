@@ -12,6 +12,31 @@ export function getCookie(name) {
 }
 
 /**
+ * Utility to set a cookie with URL-encoding and standard attributes
+ */
+export function setCookie(name, value, days = 30) {
+  if (typeof document === 'undefined') return
+  const maxAge = days * 24 * 60 * 60
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`
+}
+
+/**
+ * Ensures a CSRF cookie exists, fetching one from /api/auth/csrf/ if missing.
+ */
+export async function ensureCsrfToken() {
+  let token = getCookie('csrftoken')
+  if (!token) {
+    try {
+      await fetch('/api/auth/csrf/', { method: 'GET', credentials: 'same-origin' })
+      token = getCookie('csrftoken')
+    } catch {
+      // Ignore network errors here; the caller's request will handle failure.
+    }
+  }
+  return token
+}
+
+/**
  * Normalized API error class containing status and field-level validation errors
  */
 export class ApiError extends Error {
@@ -32,7 +57,7 @@ export async function apiRequest(endpoint, options = {}) {
 
   const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
   if (isMutating) {
-    const csrfToken = getCookie('csrftoken')
+    const csrfToken = await ensureCsrfToken()
     if (csrfToken) {
       headers['X-CSRFToken'] = csrfToken
     }

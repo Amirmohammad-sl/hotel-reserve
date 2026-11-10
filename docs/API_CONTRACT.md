@@ -2,7 +2,7 @@
 
 Conventions: JSON; base `/api/`; session cookie + `X-CSRFToken` on POST/PUT/DELETE; dates `YYYY-MM-DD`.
 Success `{"data": ...}` · Error `{"message": "...", "errors": {"field": ["msg"]}}`.
-Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=public, G=guest, M=manager, A=any logged-in.
+Roles: P=public, G=guest, M=manager, A=any logged-in.
 
 ## Auth (owner A)
 | Method | Path | Role | Body / Query | Returns |
@@ -11,17 +11,18 @@ Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=p
 | POST | /api/auth/register/ | P | username,email,password,password2,role(guest/manager),phone? | user |
 | POST | /api/auth/login/ | P | username_or_email,password,remember_me? | user |
 | POST | /api/auth/logout/ | A | – | – |
-| GET | /api/auth/me/ | P | – | user or `{"data": null}` |
+| GET | /api/auth/me/ | P | – | user (includes session `last_login` timestamp when authenticated) or `{"data": null}` |
 | POST | /api/auth/verify-email/ | P | token | user |
 | POST | /api/auth/resend-verification/ | A | – | – |
-`user` = `{id, username, email, role, email_verified}`
+`user` = `{id, username, email, role, email_verified}` (and optional `last_login` ISO timestamp)
 
 ## Public / guest browsing (owner B; models by A)
 | Method | Path | Role | Notes |
 |---|---|---|---|
 | GET | /api/cities/ | P | distinct cities of active hotels |
-| GET | /api/hotels/ | P | filters: city, check_in, check_out, guests, min_price, max_price, q; returns hotels with `min_price`, `available` flag when dates given |
-| GET | /api/hotels/{id}/ | P | hotel + room types |
+| GET | /api/hotels/ | P | filters: city, check_in, check_out, guests, min_price, max_price, q; returns hotels with `min_price`, `available` flag when dates given; sets `last_city` cookie |
+| GET | /api/hotels/recent/ | P | returns recently viewed active hotels from session in viewing order (with `min_price`) |
+| GET | /api/hotels/{id}/ | P | hotel + room types (records hotel id in session recent list) |
 | GET | /api/hotels/{id}/rooms/ | P | room types with `available_count` for `check_in`,`check_out`,`guests` |
 | GET | /api/rooms/{id}/ | P | room type detail (+ hotel summary, amenities) |
 
@@ -46,9 +47,6 @@ Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=p
 | GET/POST | /api/manager/hotels/{id}/discounts/ | |
 | PUT/DELETE | /api/manager/discounts/{id}/ | |
 | GET | /api/amenities/ | list for forms |
-
-## Bonus (later)
-`GET/POST /api/hotels/{id}/reviews/` · `GET /api/manager/dashboard/` · `GET /api/guest/dashboard/` · `GET /api/hotels/recommended/`
 
 ## Health
 `GET /api/health/` → `{"data": {"status": "ok"}}`
