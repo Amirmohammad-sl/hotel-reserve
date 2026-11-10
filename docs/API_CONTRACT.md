@@ -2,7 +2,7 @@
 
 Conventions: JSON; base `/api/`; session cookie + `X-CSRFToken` on POST/PUT/DELETE; dates `YYYY-MM-DD`.
 Success `{"data": ...}` · Error `{"message": "...", "errors": {"field": ["msg"]}}`.
-Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=public, G=guest, M=manager, A=any logged-in.
+Roles: P=public, G=guest, M=manager, A=any logged-in.
 
 ## Auth (owner A)
 | Method | Path | Role | Body / Query | Returns |
@@ -47,9 +47,6 @@ Lists accept `?page=&page_size=` after P4-09 and return `pagination`. Roles: P=p
 | GET/POST | /api/manager/hotels/{id}/discounts/ | |
 | PUT/DELETE | /api/manager/discounts/{id}/ | |
 | GET | /api/amenities/ | list for forms |
-
-## Bonus (later)
-`GET/POST /api/hotels/{id}/reviews/` · `GET /api/manager/dashboard/` · `GET /api/guest/dashboard/` · `GET /api/hotels/recommended/`
 
 ## Health
 `GET /api/health/` → `{"data": {"status": "ok"}}`
