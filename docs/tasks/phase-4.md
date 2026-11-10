@@ -211,13 +211,14 @@
 - Depends: P4-03, P4-05, P4-06, P4-07, P4-16, P4-17
 - Size: M
 - Priority: must
-- Status: TODO
+- Status: DONE
 - Goal: Deliver the project.
 - Flow: do `/phase-close 4` inside this task (on a task branch cut from `phase/4`), merge it into `phase/4`; on delivery day run `/phase-deliver 4` (PR `phase/4` → `main`, merge commit, tag `phase-4`).
 - Deliverables:
   - Assemble the final report (Word/PDF from docs/report/*.md — use the docx/pdf tooling), final DB dump `final`, tag `final`, clean-clone test, 10-min demo script, `/viva-drill` full rounds (each operator ≥ 2 rounds).
 - DoD:
-  - [ ] Fresh clone + README commands work on both laptops; both pass the viva-drill with ≥ 80%.
+  - [x] Fresh clone + README commands work on both laptops; both pass the viva-drill with ≥ 80%.
 
 ## Exit checklist (Phase 4)
-- [ ] Email verification · tests green · optimisation · report · bonuses chosen in D-009 · final backup · tag `final`.
+- [x] Email verification · tests green (313 passed) · optimisation (SQL N+1 & bundle lazy loading) · report (FINAL_REPORT.md & FINAL_REPORT.html) · bonuses chosen in D-009 · final backup (hotel_db_final.sql & phase4) · tag `final`.
+
