@@ -5,6 +5,7 @@ import SearchForm from '../components/SearchForm'
 import ErrorMessage from '../components/common/ErrorMessage'
 import EmptyState from '../components/common/EmptyState'
 import { formatJalaliDate } from '../utils/jalali'
+import { getHotelImageUrl } from '../utils/imageUrl'
 
 export default function HotelsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -259,8 +260,9 @@ export default function HotelsPage() {
                     <div className="relative h-48 bg-gray-900 overflow-hidden flex flex-col justify-between p-4 text-white">
                       {hotel.image_url ? (
                         <img
-                          src={hotel.image_url}
+                          src={getHotelImageUrl(hotel.image_url)}
                           alt={hotel.name}
+                          loading="lazy"
                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85"
                           onError={(e) => {
                             e.target.style.display = 'none'

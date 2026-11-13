@@ -110,7 +110,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 35.789100,
         "longitude": 51.365300,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f9/Espinas_Palace_Hotel_2020.jpg",
+        "image_url": "/hotels/espinas-palace.jpg",
         "room_types": [
             {
                 "title": "اتاق یک‌تخته استاندارد",
@@ -163,7 +163,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 35.792500,
         "longitude": 51.388200,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/7/7a/Hotel_Parsian_Azadi_%28Hyatt%29_-_panoramio.jpg",
+        "image_url": "/hotels/parsian-azadi.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته توئین استاندارد",
@@ -201,7 +201,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 35.708300,
         "longitude": 51.401400,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/Espinas_Hotel.jpg",
+        "image_url": "/hotels/espinas-blvd.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به بلوار",
@@ -239,7 +239,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 32.651400,
         "longitude": 51.670200,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/63/Abbasi_Hotel_in_Isfahan-1434662729.jpg",
+        "image_url": "/hotels/abbasi.jpg",
         "room_types": [
             {
                 "title": "اتاق سنتی رو به باغ",
@@ -285,7 +285,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 32.637100,
         "longitude": 51.666900,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/27/Isfahan_KowsarHotel.JPG",
+        "image_url": "/hotels/kowsar-isfahan.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته رو به زاینده‌رود",
@@ -323,7 +323,7 @@ DEMO_HOTELS = [
         "star_rating": 4,
         "latitude": 32.654000,
         "longitude": 51.685000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/16/GhasreMonshi.jpg",
+        "image_url": "/hotels/ghasre-monshi.jpg",
         "room_types": [
             {
                 "title": "اتاق شاه‌نشین دو تخته",
@@ -361,7 +361,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 36.277800,
         "longitude": 59.619200,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Darvishi_hotel.png",
+        "image_url": "/hotels/darvishi.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته امپریال",
@@ -399,7 +399,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 36.331200,
         "longitude": 59.497500,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/2b/Hotel_Pars_Mashhad.jpg",
+        "image_url": "/hotels/pars-mashhad.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته لوکس باغ",
@@ -437,7 +437,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 37.794400,
         "longitude": 46.244700,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/e/e8/20231118_Laleh_Hotel_Kandovan.jpg",
+        "image_url": "/hotels/laleh-kandovan.jpg",
         "room_types": [
             {
                 "title": "اتاق صخره‌ای دوتخته با جکوزی",
@@ -477,7 +477,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 29.663100,
         "longitude": 52.488300,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/e/ed/Chamran_from_tasnim.jpg",
+        "image_url": "/hotels/chamran-shiraz.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته دلوکس قصرالدشت",
@@ -523,7 +523,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 29.629500,
         "longitude": 52.540100,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/e/ef/Shirazhomahotel.jpg",
+        "image_url": "/hotels/homa-shiraz.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته رو به بوستان",
@@ -561,7 +561,7 @@ DEMO_HOTELS = [
         "star_rating": 4,
         "latitude": 29.682000,
         "longitude": 52.469000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/66/Elysee_Hotel%2C_Shiraz.jpg",
+        "image_url": "/hotels/elysee-shiraz.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته کامفورت",
@@ -599,7 +599,7 @@ DEMO_HOTELS = [
         "star_rating": 4,
         "latitude": 31.884500,
         "longitude": 54.372100,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f7/Iranyazddadhotel.jpg",
+        "image_url": "/hotels/dad-yazd.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به حیاط مرکزی",
@@ -637,7 +637,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 31.848000,
         "longitude": 54.361000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/d/de/Safaiyeh_Hotel%2C_Yazd.jpg",
+        "image_url": "/hotels/safaiyeh-yazd.jpg",
         "room_types": [
             {
                 "title": "اتاق دوتخته هتل جدید صفائیه",
@@ -675,7 +675,7 @@ DEMO_HOTELS = [
         "star_rating": 4,
         "latitude": 31.905000,
         "longitude": 54.341000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/2c/16_%D9%87%D8%AA%D9%84_%D9%85%D8%B4%DB%8C%D8%B1_%D8%A7%D9%84%D9%85%D9%85%D8%A7%D9%84%DA%A9_%D9%86%D9%85%D8%A7%DB%8C%DB%8C_%D8%A7%D8%B2_%D8%A8%D8%A7%D8%BA.jpg",
+        "image_url": "/hotels/moshir-yazd.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به باغ",
@@ -713,7 +713,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 26.541200,
         "longitude": 53.948100,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/2b/Hoteltoranj.jpg",
+        "image_url": "/hotels/toranj-kish.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به غروب خلیج فارس",
@@ -751,7 +751,7 @@ DEMO_HOTELS = [
         "star_rating": 5,
         "latitude": 26.533000,
         "longitude": 54.025000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/8f/Dariush_Grand_Hotel_-_1.jpg",
+        "image_url": "/hotels/dariush-kish.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به دریا",
@@ -789,7 +789,7 @@ DEMO_HOTELS = [
         "star_rating": 4,
         "latitude": 36.908000,
         "longitude": 50.665000,
-        "image_url": "https://upload.wikimedia.org/wikipedia/commons/0/07/954I6194_%D9%87%D8%AA%D9%84_%D9%82%D8%AF%DB%8C%D9%85_%D8%B1%D8%A7%D9%85%D8%B3%D8%B1.jpg",
+        "image_url": "/hotels/ramsar-hotel.jpg",
         "room_types": [
             {
                 "title": "اتاق دو تخته رو به جنگل و کوه",

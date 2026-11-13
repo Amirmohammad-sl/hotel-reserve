@@ -5,6 +5,7 @@ import BookingModal from '../components/BookingModal'
 import EmptyState from '../components/common/EmptyState'
 import PersianDatePicker from '../components/common/PersianDatePicker'
 import { formatJalaliDate, getTodayIso } from '../utils/jalali'
+import { getHotelImageUrl } from '../utils/imageUrl'
 
 function isFilled(v) {
   return Boolean(v && String(v).trim())
@@ -216,7 +217,7 @@ export default function HotelDetailPage() {
         <div className="relative h-64 sm:h-80 overflow-hidden bg-gray-900 flex flex-col justify-between p-6 sm:p-8 text-white">
           {hotel.image_url ? (
             <img
-              src={hotel.image_url}
+              src={getHotelImageUrl(hotel.image_url)}
               alt={hotel.name}
               className="absolute inset-0 w-full h-full object-cover opacity-80"
               onError={(e) => {
