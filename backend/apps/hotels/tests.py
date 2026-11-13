@@ -453,6 +453,56 @@ class PublicHotelViewsTestCase(TestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["id"], self.hotel1.id)
 
+    def test_hotels_list_filter_by_star_rating(self):
+        """Filter hotels by star_rating (gte)."""
+        url = reverse("hotels:hotels_list")
+        res5 = self.client.get(url, {"star_rating": 5})
+        self.assertEqual(res5.status_code, 200)
+        ids5 = [h["id"] for h in res5.json()["data"]]
+        self.assertIn(self.hotel1.id, ids5)
+        self.assertNotIn(self.hotel2.id, ids5)
+
+        res4 = self.client.get(url, {"star_rating": 4})
+        self.assertEqual(res4.status_code, 200)
+        ids4 = [h["id"] for h in res4.json()["data"]]
+        self.assertIn(self.hotel1.id, ids4)
+        self.assertIn(self.hotel2.id, ids4)
+
+    def test_hotels_list_sorting_price_and_stars(self):
+        """Sort hotels by price ascending, descending, and stars descending."""
+        url = reverse("hotels:hotels_list")
+        # price_asc: hotel1 (1M) before hotel2 (3.5M)
+        res_asc = self.client.get(url, {"sort": "price_asc"})
+        self.assertEqual(res_asc.status_code, 200)
+        data_asc = res_asc.json()["data"]
+        self.assertEqual(data_asc[0]["id"], self.hotel1.id)
+        self.assertEqual(data_asc[1]["id"], self.hotel2.id)
+
+        # price_desc: hotel2 (3.5M) before hotel1 (1M)
+        res_desc = self.client.get(url, {"sort": "price_desc"})
+        self.assertEqual(res_desc.status_code, 200)
+        data_desc = res_desc.json()["data"]
+        self.assertEqual(data_desc[0]["id"], self.hotel2.id)
+        self.assertEqual(data_desc[1]["id"], self.hotel1.id)
+
+    def test_hotels_list_persian_arabic_query_normalization(self):
+        """Typing Arabic yeh or kaf matches Persian text in hotel search."""
+        persian_hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="هتل پارسیان آزادی",
+            city="تهران",
+            address="خیابان چمران",
+            description="هتل پنج ستاره",
+            star_rating=5,
+            is_active=True,
+        )
+        url = reverse("hotels:hotels_list")
+        # Search with Arabic kaf and yeh: "پارسيان"
+        res = self.client.get(url, {"q": "پارسيان"})
+        self.assertEqual(res.status_code, 200)
+        ids = [h["id"] for h in res.json()["data"]]
+        self.assertIn(persian_hotel.id, ids)
+
     def test_hotels_list_with_dates_excludes_fully_booked_hotels(self):
         """DoD requirement: searching with dates excludes hotels with no room type available."""
         today = timezone.localdate()

@@ -167,6 +167,8 @@ class SearchForm(forms.Form):
     min_price = forms.IntegerField(required=False, min_value=0)
     max_price = forms.IntegerField(required=False, min_value=0)
     q = forms.CharField(required=False, max_length=255)
+    star_rating = forms.IntegerField(required=False, min_value=1, max_value=5)
+    sort = forms.CharField(required=False, max_length=50)
 
     def clean(self):
         cleaned_data = super().clean()
