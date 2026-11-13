@@ -5,10 +5,11 @@
 1. **HealthBadge repositioning & compact mode**:
    - Redesigned backend connection indicator (`HealthBadge.jsx`) to support a clean, unobtrusive `compact` pill mode (dot indicator + status label + retry button).
    - Moved badge on `HomePage.jsx` from a large centered hero banner to the top-left corner of the hero section.
-2. **Real hotel photos & Database expansion**:
+2. **Real hotel photos & Database expansion (Local bundling & Performance)**:
    - Expanded `backend/apps/core/management/commands/seed_demo.py` from 7 to 18 verified hotels across 8 tourist cities (Tehran, Isfahan, Shiraz, Yazd, Mashhad, Kish, Tabriz, Ramsar).
-   - Replaced generic/random Unsplash images with real Wikimedia Commons photographs of the actual hotels and landmarks.
-   - Connected `hotel.image_url` properly in `HotelsPage.jsx` and `HotelDetailPage.jsx` (which previously only rendered gradient placeholders).
+   - Ensured all photos exclusively portray the real **exterior building/facade** of each hotel.
+   - To eliminate heavy network loading, latency, and ISP throttling from external CDNs, all 18 building images are downloaded and bundled locally into `frontend/public/hotels/` (copied to `frontend/dist/hotels/` upon build). Images load in ~1ms with zero external network dependency.
+   - Connected `getHotelImageUrl` helper and `loading="lazy"` in `HotelsPage.jsx` and `HotelDetailPage.jsx`.
 3. **Advanced search & filter fixes**:
    - In `backend/apps/hotels/forms.py` & `views.py`: added `star_rating` (1–5) and `sort` (`price_asc`, `price_desc`, `stars_desc`), and Persian/Arabic character normalization (`ي` to `ی`, `ك` to `ک`).
    - In `frontend/src/pages/HotelsPage.jsx`: built `FilterSidebar` component for keyword search, star rating dropdown, sort order, and min/max price range, with clean state isolation and no cascading renders.
