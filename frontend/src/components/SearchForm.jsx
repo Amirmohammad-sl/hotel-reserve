@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getCitiesApi } from '../api/hotels'
 import { getCookie, setCookie } from '../api/client'
+import PersianDatePicker from './common/PersianDatePicker'
+import { getTodayIso } from '../utils/jalali'
 
 export default function SearchForm({
   initialValues = {},
@@ -23,7 +25,6 @@ export default function SearchForm({
   const [guests, setGuests] = useState(initialValues.guests || 1)
   const [dateError, setDateError] = useState('')
 
-
   useEffect(() => {
     let isMounted = true
     async function loadCities() {
@@ -44,22 +45,21 @@ export default function SearchForm({
     }
   }, [])
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayIso = getTodayIso()
 
-  const handleCheckInChange = (e) => {
-    const newIn = e.target.value
+  const handleCheckInChange = (newIn) => {
     setCheckIn(newIn)
     setDateError('')
     if (checkOut && newIn && checkOut <= newIn) {
       // Auto-set checkOut to next day
       const d = new Date(newIn)
       d.setDate(d.getDate() + 1)
-      setCheckOut(d.toISOString().split('T')[0])
+      const pad = (n) => String(n).padStart(2, '0')
+      setCheckOut(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
     }
   }
 
-  const handleCheckOutChange = (e) => {
-    const newOut = e.target.value
+  const handleCheckOutChange = (newOut) => {
     setCheckOut(newOut)
     setDateError('')
     if (checkIn && newOut && newOut <= checkIn) {
@@ -114,7 +114,7 @@ export default function SearchForm({
               id="search-city"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-              className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none cursor-pointer"
+              className="w-full h-10 px-3 bg-gray-50 border border-gray-300 rounded-xl text-xs sm:text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none cursor-pointer shadow-2xs"
             >
               <option value="">همه شهرها</option>
               {cities.map((c) => (
@@ -137,33 +137,27 @@ export default function SearchForm({
           )}
         </div>
 
-        {/* Check-in date */}
+        {/* Check-in date (Shamsi) */}
         <div>
-          <label htmlFor="search-check-in" className="block text-xs font-semibold text-gray-700 mb-1">
-            تاریخ ورود
-          </label>
-          <input
+          <PersianDatePicker
             id="search-check-in"
-            type="date"
-            min={todayStr}
+            label="تاریخ ورود (شمسی)"
             value={checkIn}
+            min={todayIso}
             onChange={handleCheckInChange}
-            className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+            placeholder="انتخاب تاریخ ورود"
           />
         </div>
 
-        {/* Check-out date */}
+        {/* Check-out date (Shamsi) */}
         <div>
-          <label htmlFor="search-check-out" className="block text-xs font-semibold text-gray-700 mb-1">
-            تاریخ خروج
-          </label>
-          <input
+          <PersianDatePicker
             id="search-check-out"
-            type="date"
-            min={checkIn || todayStr}
+            label="تاریخ خروج (شمسی)"
             value={checkOut}
+            min={checkIn || todayIso}
             onChange={handleCheckOutChange}
-            className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+            placeholder="انتخاب تاریخ خروج"
           />
         </div>
 
@@ -180,17 +174,17 @@ export default function SearchForm({
               max="20"
               value={guests}
               onChange={(e) => setGuests(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+              className="w-full h-10 px-3 bg-gray-50 border border-gray-300 rounded-xl text-xs sm:text-sm text-center text-gray-900 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all shadow-2xs"
             />
           </div>
         </div>
 
-        {/* Submit button (if compact, placed in grid; otherwise full width on mobile or inline) */}
+        {/* Submit button (if compact) */}
         {compact && (
           <div className="flex items-end">
             <button
               type="submit"
-              className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl text-sm shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl text-xs sm:text-sm shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -211,7 +205,7 @@ export default function SearchForm({
         <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
           <button
             type="submit"
-            className="w-full sm:w-auto px-8 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full sm:w-auto px-8 h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getBookingQuoteApi, validateDiscountApi, createBookingApi } from '../api/bookings'
+import PersianDatePicker from './common/PersianDatePicker'
 
 export default function BookingModal({
   hotel,
@@ -214,38 +215,36 @@ export default function BookingModal({
           </div>
         ) : (
           <form onSubmit={handleBookingSubmit} className="mt-5 space-y-5">
-            {/* Dates Row */}
+            {/* Dates Row (Persian Calendar) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  تاریخ ورود
-                </label>
-                <input
-                  type="date"
-                  min={todayStr}
+                <PersianDatePicker
+                  label="تاریخ ورود (شمسی)"
                   value={checkIn}
-                  onChange={(e) => {
+                  min={todayStr}
+                  onChange={(iso) => {
                     setQuoteLoading(true)
-                    setCheckIn(e.target.value)
+                    setCheckIn(iso)
+                    if (checkOut && iso && checkOut <= iso) {
+                      const d = new Date(iso)
+                      d.setDate(d.getDate() + 1)
+                      const pad = (n) => String(n).padStart(2, '0')
+                      setCheckOut(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
+                    }
                   }}
                   required
-                  className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  تاریخ خروج
-                </label>
-                <input
-                  type="date"
-                  min={checkIn || todayStr}
+                <PersianDatePicker
+                  label="تاریخ خروج (شمسی)"
                   value={checkOut}
-                  onChange={(e) => {
+                  min={checkIn || todayStr}
+                  onChange={(iso) => {
                     setQuoteLoading(true)
-                    setCheckOut(e.target.value)
+                    setCheckOut(iso)
                   }}
                   required
-                  className="w-full h-11 px-3 bg-gray-50 border border-gray-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
             </div>

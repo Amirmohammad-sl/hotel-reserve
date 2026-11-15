@@ -20,7 +20,7 @@ Roles: P=public, G=guest, M=manager, A=any logged-in.
 | Method | Path | Role | Notes |
 |---|---|---|---|
 | GET | /api/cities/ | P | distinct cities of active hotels |
-| GET | /api/hotels/ | P | filters: city, check_in, check_out, guests, min_price, max_price, q; returns hotels with `min_price`, `available` flag when dates given; sets `last_city` cookie |
+| GET | /api/hotels/ | P | filters: city, check_in, check_out, guests, min_price, max_price, q, star_rating (1-5), sort (price_asc/price_desc/stars_desc); returns hotels with `min_price`, `available` flag when dates given; sets `last_city` cookie |
 | GET | /api/hotels/recent/ | P | returns recently viewed active hotels from session in viewing order (with `min_price`) |
 | GET | /api/hotels/{id}/ | P | hotel + room types (records hotel id in session recent list) |
 | GET | /api/hotels/{id}/rooms/ | P | room types with `available_count` for `check_in`,`check_out`,`guests` |

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { getHealth } from '../api/health'
 
-export default function HealthBadge() {
+export default function HealthBadge({ compact = true, className = '' }) {
   const [status, setStatus] = useState('loading') // 'loading' | 'online' | 'offline'
   const [details, setDetails] = useState(null)
 
@@ -48,9 +48,46 @@ export default function HealthBadge() {
     }
   }, [])
 
+  if (compact) {
+    return (
+      <div
+        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-200 bg-white/90 backdrop-blur-xs shadow-2xs ${className}`}
+        title={details?.status ? `وضعیت: ${details.status}` : 'وضعیت اتصال به سرور'}
+      >
+        {status === 'loading' && (
+          <span className="inline-flex items-center gap-1.5 text-amber-700">
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+            بررسی اتصال سرور...
+          </span>
+        )}
+
+        {status === 'online' && (
+          <span className="inline-flex items-center gap-1.5 text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+            سرور آنلاین
+          </span>
+        )}
+
+        {status === 'offline' && (
+          <div className="inline-flex items-center gap-1.5 text-rose-700">
+            <span className="h-2 w-2 rounded-full bg-rose-500"></span>
+            <span>سرور قطع</span>
+            <button
+              type="button"
+              onClick={checkHealth}
+              className="text-[11px] text-blue-600 hover:text-blue-800 underline cursor-pointer mr-0.5"
+            >
+              تلاش مجدد
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className="inline-flex items-center gap-3 p-3 rounded-xl border bg-white shadow-xs">
-      <span className="text-sm font-medium text-gray-700">وضعیت اتصال به سرور بک‌اند:</span>
+    <div className={`inline-flex items-center gap-3 p-3 rounded-xl border bg-white shadow-xs ${className}`}>
+      <span className="text-sm font-medium text-gray-700">وضعیت اتصال به سرور:</span>
 
       {status === 'loading' && (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">

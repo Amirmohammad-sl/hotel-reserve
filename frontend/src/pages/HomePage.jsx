@@ -28,7 +28,12 @@ export default function HomePage() {
   return (
     <div className="space-y-12">
       {/* Hero section with embedded search */}
-      <section className="py-12 px-4 sm:px-6 lg:px-8 bg-linear-to-b from-blue-50 to-white rounded-3xl border border-blue-100 shadow-xs">
+      <section className="relative py-8 sm:py-12 px-4 sm:px-6 lg:px-8 bg-linear-to-b from-blue-50 to-white rounded-3xl border border-blue-100 shadow-xs">
+        {/* Subtle Top Connection Badge */}
+        <div className="flex justify-end mb-3">
+          <HealthBadge compact />
+        </div>
+
         <div className="text-center max-w-3xl mx-auto">
           <h1 className="text-3xl sm:text-5xl font-black text-gray-900 tracking-tight">
             رزرو آسان و سریع <span className="text-blue-600">هتل‌های سراسر ایران</span>
@@ -56,11 +61,6 @@ export default function HomePage() {
           >
             ورود به پنل هتل‌داران
           </Link>
-        </div>
-
-        {/* Health Check Badge */}
-        <div className="mt-10 pt-8 border-t border-blue-100/70 flex justify-center">
-          <HealthBadge />
         </div>
       </section>
 

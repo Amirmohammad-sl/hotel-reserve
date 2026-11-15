@@ -52,6 +52,8 @@ def hotels_list_view(request):
     min_price = cleaned.get("min_price")
     max_price = cleaned.get("max_price")
     q = cleaned.get("q")
+    star_rating = cleaned.get("star_rating")
+    sort = cleaned.get("sort")
 
     room_types_prefetch = Prefetch(
         "room_types",
@@ -65,13 +67,19 @@ def hotels_list_view(request):
         .prefetch_related(room_types_prefetch)
     )
 
+    if star_rating:
+        hotels_qs = hotels_qs.filter(star_rating__gte=star_rating)
+
     if q:
         query_val = q.strip()
+        # Handle Persian/Arabic character variants
+        q_v1 = query_val.replace("ي", "ی").replace("ك", "ک")
+        q_v2 = query_val.replace("ی", "ي").replace("ک", "ك")
         hotels_qs = hotels_qs.filter(
-            Q(name__icontains=query_val)
-            | Q(city__icontains=query_val)
-            | Q(address__icontains=query_val)
-            | Q(description__icontains=query_val)
+            Q(name__icontains=q_v1) | Q(name__icontains=q_v2)
+            | Q(city__icontains=q_v1) | Q(city__icontains=q_v2)
+            | Q(address__icontains=q_v1) | Q(address__icontains=q_v2)
+            | Q(description__icontains=q_v1) | Q(description__icontains=q_v2)
         )
 
     hotels_list = list(hotels_qs)
@@ -141,6 +149,14 @@ def hotels_list_view(request):
                 "available": is_available,
             }
         )
+
+    # Sort results if requested
+    if sort == "price_asc":
+        results.sort(key=lambda h: (h["min_price"] is None, h["min_price"] or 0))
+    elif sort == "price_desc":
+        results.sort(key=lambda h: (h["min_price"] is None, -(h["min_price"] or 0)))
+    elif sort == "stars_desc":
+        results.sort(key=lambda h: -(h["star_rating"] or 0))
 
     logger.debug(
         "Hotels search executed: city=%s check_in=%s check_out=%s guests=%s results=%d",

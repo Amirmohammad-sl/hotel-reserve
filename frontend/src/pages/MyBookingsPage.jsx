@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { getMyBookingsApi, cancelBookingApi } from '../api/bookings'
 import ErrorMessage from '../components/common/ErrorMessage'
 import EmptyState from '../components/common/EmptyState'
+import { formatJalaliDate } from '../utils/jalali'
 
 export default function MyBookingsPage() {
   const location = useLocation()
@@ -225,7 +226,7 @@ export default function MyBookingsPage() {
                       <strong>نوع اتاق:</strong> {roomTitle} ({b.rooms_count} اتاق، {b.guests_count} مسافر)
                     </p>
                     <p>
-                      <strong>بازه اقامت:</strong> از {b.check_in} تا {b.check_out} ({b.nights} شب)
+                      <strong>بازه اقامت:</strong> از {formatJalaliDate(b.check_in, 'long')} تا {formatJalaliDate(b.check_out, 'long')} ({b.nights} شب)
                     </p>
                     {b.created_at && (
                       <p className="text-[11px] text-gray-400">
