@@ -34,7 +34,7 @@ Get-Content $EnvPath | ForEach-Object {
     }
 }
 
-$DbName = if ($DbEnv.ContainsKey("DB_NAME")) { $DbEnv["DB_NAME"] } else { $env:DB_NAME }
+$DbName = if ($env:DB_NAME_OVERRIDE) { $env:DB_NAME_OVERRIDE } elseif ($DbEnv.ContainsKey("DB_NAME")) { $DbEnv["DB_NAME"] } else { $env:DB_NAME }
 $DbUser = if ($DbEnv.ContainsKey("DB_USER")) { $DbEnv["DB_USER"] } else { $env:DB_USER }
 $DbPass = if ($DbEnv.ContainsKey("DB_PASSWORD")) { $DbEnv["DB_PASSWORD"] } else { $env:DB_PASSWORD }
 $DbHost = if ($DbEnv.ContainsKey("DB_HOST")) { $DbEnv["DB_HOST"] } else { "localhost" }
@@ -50,9 +50,24 @@ if (-not (Test-Path $BackupDir)) {
 
 $OutFile = Join-Path $BackupDir "hotel_db_${Label}.sql"
 
+$PgDump = "pg_dump"
+if (-not (Get-Command "pg_dump" -ErrorAction SilentlyContinue)) {
+    $candidates = @(
+        "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe",
+        "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe",
+        "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+    )
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) {
+            $PgDump = $cand
+            break
+        }
+    }
+}
+
 $env:PGPASSWORD = $DbPass
 try {
-    & pg_dump -h $DbHost -p $DbPort -U $DbUser --no-owner --no-privileges --clean --if-exists -f $OutFile $DbName
+    & $PgDump -h $DbHost -p $DbPort -U $DbUser --no-owner --no-privileges --clean --if-exists -f $OutFile $DbName
     if ($LASTEXITCODE -ne 0) {
         throw "pg_dump failed with exit code $LASTEXITCODE"
     }

@@ -55,7 +55,37 @@ Django + PostgreSQL backend, React + Vite + Tailwind frontend. Built by two oper
    npm run lint
    npm run build
    ```
-## Demo accounts / seed data (filled in P2-10)
+## Demo accounts / seed data (P2-10)
+
+Populate the database with course-required test fixtures (2 managers, 5 guests, 7 hotels in 4 cities, 17 room types, discount codes, 21 bookings):
+
+```bash
+# From backend directory with venv activated:
+python manage.py seed_demo
+
+# To wipe existing demo records and reseed from scratch:
+python manage.py seed_demo --reset
+```
+
+### Pre-configured Demo Users
+
+| Username | Email | Password | Role | Description |
+|---|---|---|---|---|
+| `manager1` | `manager1@hotel.com` | `Manager123!` | Manager | Owns 4 hotels in Tehran and Isfahan |
+| `manager2` | `manager2@hotel.com` | `Manager123!` | Manager | Owns 3 hotels in Shiraz and Yazd |
+| `guest1` | `guest1@test.com` | `Guest123!` | Guest | Verified guest user with past/current/future bookings |
+| `guest2` | `guest2@test.com` | `Guest123!` | Guest | Verified guest user with past/current/future bookings |
+| `guest3` | `guest3@test.com` | `Guest123!` | Guest | Verified guest user with past/current/future bookings |
+| `guest4` | `guest4@test.com` | `Guest123!` | Guest | Verified guest user with past/current/future bookings |
+| `guest5` | `guest5@test.com` | `Guest123!` | Guest | Verified guest user with past/current/future bookings |
+
+### Demo Hotels & Cities
+
+- **Tehran**: هتل اسپیناس پالاس (5★), هتل پارسیان آزادی (5★)
+- **Isfahan**: هتل عباسی (5★), هتل بین‌المللی کوثر (5★)
+- **Shiraz**: هتل بزرگ چمران (5★), هتل سنتی زندیه (5★)
+- **Yazd**: هتل داد یزد (4★)
+
 
 ## Branch model
 See `docs/PHASE_BRANCHES.md` (stacked phase branches; `main` = delivered phases only).
