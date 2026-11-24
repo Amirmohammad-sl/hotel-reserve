@@ -1,11 +1,80 @@
+import logging
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+
+class DiscountCodeQuerySet(models.QuerySet):
+    """Custom QuerySet for DiscountCode providing domain-specific filtering."""
+
+    def valid_now(self, hotel, today=None):
+        """Filter discount coupons for a hotel that are active, unexpired, and have remaining redemptions.
+
+        WHY: Encapsulates all temporal and usage constraints (D-004) into a single reusable
+        ORM query so views, serializers, and booking services do not duplicate filter criteria.
+        """
+        if today is None:
+            today = timezone.localdate()
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(
+            hotel_id=hotel_id,
+            is_active=True,
+            valid_from__lte=today,
+            valid_to__gte=today,
+        ).filter(
+            models.Q(max_uses__isnull=True) | models.Q(used_count__lt=models.F("max_uses"))
+        )
+
+    def get_valid(self, hotel, code: str, today=None):
+        """Retrieve a valid discount code instance matching code for a hotel, or None if invalid/expired.
+
+        WHY: Provides safe, normalized coupon redemption lookup, moving case-insensitive
+        and active-validity verification out of views and forms into the model manager layer.
+        """
+        if not code:
+            return None
+        normalized_code = str(code).strip().upper()
+        res = self.valid_now(hotel, today=today).filter(code=normalized_code).first()
+        hotel_id = getattr(hotel, "id", hotel)
+        logger.debug(
+            "DiscountCodeQuerySet.get_valid queried: hotel_id=%s code='%s' found=%s",
+            hotel_id,
+            normalized_code,
+            res is not None,
+        )
+        return res
+
+    def for_hotel(self, hotel):
+        """Filter discount codes belonging to a specific hotel instance or hotel ID.
+
+        WHY: Encapsulates hotel scoping for discount codes across manager and booking views.
+        """
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(hotel_id=hotel_id)
+
+    def owned_by(self, user):
+        """Filter discount codes belonging to hotels owned by the specified manager user.
+
+        WHY: Enforces manager-level multi-tenancy and data isolation for coupon management,
+        preventing foreign managers from inspecting, altering, or deleting promo codes.
+        """
+        return self.filter(hotel__owner=user)
+
+
+class DiscountCodeManager(models.Manager.from_queryset(DiscountCodeQuerySet)):
+    """Manager for DiscountCode model exposing DiscountCodeQuerySet methods."""
+
+    pass
 
 
 class DiscountCode(models.Model):
     """Discount coupon code defined by a hotel manager for a specific hotel."""
+
+    objects = DiscountCodeManager()
 
     hotel = models.ForeignKey(
         "hotels.Hotel",
@@ -83,12 +152,58 @@ class DiscountCode(models.Model):
         return f"{self.code} ({self.percent}% - {self.hotel.name})"
 
 
+class BookingQuerySet(models.QuerySet):
+    """Custom QuerySet for Booking providing domain filters for status, overlap, hotel and guest."""
+
+    def active(self):
+        """Filter bookings with CONFIRMED status.
+
+        WHY: In our domain model, only confirmed reservations hold room inventory. Cancelled
+        bookings free up room units, so active() provides the baseline set for occupancy and billing.
+        """
+        return self.filter(status=Booking.Status.CONFIRMED)
+
+    def overlapping(self, check_in, check_out):
+        """Filter bookings overlapping with the date range [check_in, check_out).
+
+        WHY: Implements the exact interval overlap condition (check_in < req_out AND check_out > req_in)
+        mandated by Decision D-006. Ensures that same-day turnover (e.g. guest departs morning of 5th
+        and another arrives afternoon of 5th) does not trigger an overlap conflict.
+        """
+        logger.debug(
+            "BookingQuerySet.overlapping queried: check_in=%s check_out=%s",
+            check_in,
+            check_out,
+        )
+        return self.filter(check_in__lt=check_out, check_out__gt=check_in)
+
+    def for_hotel(self, hotel):
+        """Filter bookings belonging to a specific hotel instance or hotel ID.
+
+        WHY: Provides hotel-level tenancy isolation for manager dashboards, availability matrices,
+        and reservation listings without writing manual joins across room_type and hotel.
+        """
+        hotel_id = getattr(hotel, "id", hotel)
+        return self.filter(room_type__hotel_id=hotel_id)
+
+    def for_guest(self, user):
+        """Filter bookings made by a specific guest user instance or user ID.
+
+        WHY: Encapsulates ownership checks for guest booking management ('my bookings'), ensuring
+        guests can never inspect or alter reservations belonging to other users.
+        """
+        user_id = getattr(user, "id", user)
+        return self.filter(guest_id=user_id)
+
+
 class Booking(models.Model):
     """Guest reservation for rooms of a specific RoomType in a date range."""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
+
+    objects = BookingQuerySet.as_manager()
 
     guest = models.ForeignKey(
         settings.AUTH_USER_MODEL,

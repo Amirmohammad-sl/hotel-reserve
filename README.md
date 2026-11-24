@@ -87,5 +87,18 @@ python manage.py seed_demo --reset
 - **Yazd**: هتل داد یزد (4★)
 
 
+## Session management & maintenance (P3-06)
+
+Authentication uses database-backed sessions (`django.contrib.sessions.backends.db`) with secure cookies:
+- **Security Flags**: `HttpOnly=True` (guards against XSS), `SameSite=Lax` (guards against CSRF), and `Secure=True` in production (`DEBUG=False`).
+- **Session Duration & Remember-Me**: Standard session cookie (expires when browser closes) if `remember_me=False`; 14 days (`SESSION_COOKIE_AGE=1209600`) if `remember_me=True`.
+- **Session Flush**: Complete session invalidation and deletion from DB upon `/api/auth/logout/`.
+- **Maintenance Command (`clearsessions`)**:
+  Database-backed sessions accumulate expired records over time in `django_session`. Clean them periodically with:
+  ```bash
+  python manage.py clearsessions
+  ```
+  In production, this should be scheduled as a daily cron job.
+
 ## Branch model
 See `docs/PHASE_BRANCHES.md` (stacked phase branches; `main` = delivered phases only).

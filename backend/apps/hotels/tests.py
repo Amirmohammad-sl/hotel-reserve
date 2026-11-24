@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
@@ -1085,3 +1086,684 @@ class ManagerHotelsViewsTestCase(TestCase):
         res = self.client.delete(url)
         self.assertEqual(res.status_code, 200)
         self.assertFalse(RoomType.objects.filter(id=self.rt_a.id).exists())
+
+
+
+# ===========================================================================
+# P3-07: Cookies and Recent Hotels Test Suites
+# ===========================================================================
+class RecentHotelsAndCookiesTestCase(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="owner_p307",
+            email="owner_p307@hotel.com",
+            password="pass",
+            role=User.Role.MANAGER,
+        )
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager,
+            name="Tehran Grand Palace",
+            city="تهران",
+            address="Valiasr St.",
+            description="Classic hotel in Tehran",
+            star_rating=5,
+            is_active=True,
+        )
+        self.rt1 = RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2500000,
+            quantity=5,
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager,
+            name="Shiraz Garden Hotel",
+            city="شیراز",
+            address="Zand St.",
+            description="Garden hotel in Shiraz",
+            star_rating=4,
+            is_active=True,
+        )
+        self.rt2 = RoomType.objects.create(
+            hotel=self.hotel2,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1800000,
+            quantity=3,
+        )
+
+    def test_hotels_list_sets_last_city_cookie(self):
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url, {"city": "تهران"})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("last_city", res.cookies)
+        cookie_val = res.cookies["last_city"].value
+        import urllib.parse
+        self.assertEqual(urllib.parse.unquote(cookie_val), "تهران")
+
+    def test_hotels_list_without_city_does_not_set_cookie(self):
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn("last_city", res.cookies)
+
+    def test_hotel_detail_records_session_history(self):
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        url2 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel2.id})
+
+        # Visit hotel 1
+        res1 = self.client.get(url1)
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel1.id])
+
+        # Visit hotel 2
+        res2 = self.client.get(url2)
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel2.id, self.hotel1.id])
+
+        # Visit hotel 1 again (should move hotel 1 to top)
+        res3 = self.client.get(url1)
+        self.assertEqual(res3.status_code, 200)
+        self.assertEqual(self.client.session.get("recent_hotel_ids"), [self.hotel1.id, self.hotel2.id])
+
+    def test_recent_hotels_view_empty_session(self):
+        url = reverse("hotels:recent_hotels")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get("data"), [])
+
+    def test_recent_hotels_view_returns_ordered_hotels(self):
+        # Visit hotel 2 then hotel 1
+        url2 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel2.id})
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        self.client.get(url2)
+        self.client.get(url1)
+
+        recent_url = reverse("hotels:recent_hotels")
+        res = self.client.get(recent_url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["id"], self.hotel1.id)
+        self.assertEqual(data[0]["name"], "Tehran Grand Palace")
+        self.assertEqual(data[0]["min_price"], 2500000)
+        self.assertEqual(data[1]["id"], self.hotel2.id)
+        self.assertEqual(data[1]["name"], "Shiraz Garden Hotel")
+        self.assertEqual(data[1]["min_price"], 1800000)
+
+    def test_recent_hotels_view_ignores_inactive_hotels(self):
+        url1 = reverse("hotels:hotel_detail", kwargs={"hotel_id": self.hotel1.id})
+        self.client.get(url1)
+
+        # Deactivate hotel 1
+        self.hotel1.is_active = False
+        self.hotel1.save()
+
+        recent_url = reverse("hotels:recent_hotels")
+        res = self.client.get(recent_url)
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 0)
+
+
+# ===========================================================================
+# P3-02: RoomTypeQuerySet Availability Test Suites
+# ===========================================================================
+
+
+class RoomTypeQuerySetAvailabilityTests(TestCase):
+    """Test suite for RoomTypeQuerySet.with_availability and available_in_range (P3-02)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p3_hotel_mgr",
+            email="p3_hotel_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p3_hotel_guest",
+            email="p3_hotel_guest@test.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="P3 Luxury Hotel",
+            city="Tabriz",
+            address="Shahgoli",
+            is_active=True,
+        )
+        self.rt1 = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Double",
+            capacity=2,
+            price_per_night=2_500_000,
+            quantity=4,
+        )
+        self.rt2 = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Presidential Suite",
+            capacity=4,
+            price_per_night=8_000_000,
+            quantity=1,
+        )
+
+    def test_with_availability_without_dates_returns_full_inventory(self):
+        """When check_in or check_out is None, reserved is 0 and available_count is quantity."""
+        qs = RoomType.objects.filter(hotel=self.hotel).with_availability()
+        for rt in qs:
+            self.assertEqual(rt.reserved, 0)
+            self.assertEqual(rt.available_count, rt.quantity)
+
+    def test_with_availability_with_confirmed_bookings(self):
+        """Confirmed overlapping bookings increment reserved and decrement available_count."""
+        # Book 3 rooms of rt1 from Sep 10 to Sep 15
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+            rooms_count=3,
+            guests_count=3,
+            nights=5,
+            price_per_night_snapshot=2_500_000,
+            subtotal=37_500_000,
+            total_price=37_500_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        qs = RoomType.objects.filter(hotel=self.hotel).with_availability(
+            check_in=date(2026, 9, 12),
+            check_out=date(2026, 9, 14),
+        )
+        rt1_res = qs.get(id=self.rt1.id)
+        rt2_res = qs.get(id=self.rt2.id)
+
+        # rt1: 4 total - 3 reserved = 1 available
+        self.assertEqual(rt1_res.reserved, 3)
+        self.assertEqual(rt1_res.available_count, 1)
+
+        # rt2: 1 total - 0 reserved = 1 available
+        self.assertEqual(rt2_res.reserved, 0)
+        self.assertEqual(rt2_res.available_count, 1)
+
+    def test_with_availability_cancelled_booking_does_not_reduce_inventory(self):
+        """Cancelled bookings must not consume inventory."""
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt2,
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+            rooms_count=1,
+            guests_count=2,
+            nights=5,
+            price_per_night_snapshot=8_000_000,
+            subtotal=40_000_000,
+            total_price=40_000_000,
+            status=Booking.Status.CANCELLED,
+        )
+
+        qs = RoomType.objects.filter(id=self.rt2.id).with_availability(
+            check_in=date(2026, 9, 10),
+            check_out=date(2026, 9, 15),
+        )
+        rt2_res = qs.get()
+        self.assertEqual(rt2_res.reserved, 0)
+        self.assertEqual(rt2_res.available_count, 1)
+
+    def test_with_availability_same_day_turnover_dod(self):
+        """
+        DoD: Same-day turnover (out on 5th, in on 5th) is available.
+        A booking checking out on Sep 5 does not block an arrival on Sep 5.
+        """
+        # Book ALL 4 rooms of rt1 from Sep 1 to Sep 5
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 9, 1),
+            check_out=date(2026, 9, 5),
+            rooms_count=4,
+            guests_count=4,
+            nights=4,
+            price_per_night_snapshot=2_500_000,
+            subtotal=40_000_000,
+            total_price=40_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Query for arrival on Sep 5 to Sep 10
+        qs_after = RoomType.objects.filter(id=self.rt1.id).with_availability(
+            check_in=date(2026, 9, 5),
+            check_out=date(2026, 9, 10),
+        )
+        res_after = qs_after.get()
+        self.assertEqual(res_after.reserved, 0, "Departing guests on 5th should not reserve morning of 5th arrival.")
+        self.assertEqual(res_after.available_count, 4)
+
+        # Query for departure on Sep 1
+        qs_before = RoomType.objects.filter(id=self.rt1.id).with_availability(
+            check_in=date(2026, 8, 25),
+            check_out=date(2026, 9, 1),
+        )
+        res_before = qs_before.get()
+        self.assertEqual(res_before.reserved, 0, "Arriving guests on 1st should not block departure on 1st.")
+        self.assertEqual(res_before.available_count, 4)
+
+    def test_available_in_range_filter(self):
+        """available_in_range() filters room types matching requested room quantity."""
+        # Book 3 rooms of rt1 (leaving 1)
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt1,
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=3,
+            guests_count=3,
+            nights=4,
+            price_per_night_snapshot=2_500_000,
+            subtotal=30_000_000,
+            total_price=30_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        # Requesting 1 room: both rt1 (1 left) and rt2 (1 left) are available
+        qs_1 = RoomType.objects.filter(hotel=self.hotel).available_in_range(
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=1,
+        )
+        self.assertEqual(qs_1.count(), 2)
+
+        # Requesting 2 rooms: neither rt1 (only 1 left) nor rt2 (only 1 left) qualify
+        qs_2 = RoomType.objects.filter(hotel=self.hotel).available_in_range(
+            check_in=date(2026, 11, 1),
+            check_out=date(2026, 11, 5),
+            rooms_count=2,
+        )
+        self.assertEqual(qs_2.count(), 0)
+
+    def test_for_hotel_and_owned_by(self):
+        """RoomTypeQuerySet.for_hotel and .owned_by correctly scope room types (P3-03)."""
+        other_mgr = User.objects.create_user(
+            username="p3_other_hotel_mgr",
+            email="p3_other_hotel_mgr@test.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        other_hotel = Hotel.objects.create(
+            owner=other_mgr,
+            name="Other Hotel",
+            city="Tabriz",
+            address="Elgoli",
+            is_active=True,
+        )
+        other_rt = RoomType.objects.create(
+            hotel=other_hotel,
+            title="Single Room",
+            capacity=1,
+            price_per_night=1_000_000,
+            quantity=2,
+        )
+
+        hotel_rts = RoomType.objects.for_hotel(self.hotel)
+        self.assertIn(self.rt1, hotel_rts)
+        self.assertIn(self.rt2, hotel_rts)
+        self.assertNotIn(other_rt, hotel_rts)
+
+        hotel_rts_id = RoomType.objects.for_hotel(self.hotel.id)
+        self.assertIn(self.rt1, hotel_rts_id)
+        self.assertNotIn(other_rt, hotel_rts_id)
+
+        mgr_rts = RoomType.objects.owned_by(self.manager)
+        self.assertIn(self.rt1, mgr_rts)
+        self.assertIn(self.rt2, mgr_rts)
+        self.assertNotIn(other_rt, mgr_rts)
+
+        other_mgr_rts = RoomType.objects.owned_by(other_mgr)
+        self.assertIn(other_rt, other_mgr_rts)
+        self.assertNotIn(self.rt1, other_mgr_rts)
+
+
+
+class HotelQuerySetTestCase(TestCase):
+    def setUp(self):
+        self.manager1 = User.objects.create_user(
+            username="manager_qs_1",
+            email="m_qs1@example.com",
+            password="password123",
+            role=User.Role.MANAGER,
+        )
+        self.manager2 = User.objects.create_user(
+            username="manager_qs_2",
+            email="m_qs2@example.com",
+            password="password123",
+            role=User.Role.MANAGER,
+        )
+
+        self.hotel1 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Tehran Grand Hotel",
+            city="Tehran",
+            address="Valiasr St",
+            is_active=True,
+        )
+        self.hotel2 = Hotel.objects.create(
+            owner=self.manager1,
+            name="Tehran Inactive Hotel",
+            city="Tehran",
+            address="Enghelab St",
+            is_active=False,
+        )
+        self.hotel3 = Hotel.objects.create(
+            owner=self.manager2,
+            name="Isfahan Palace",
+            city="Isfahan",
+            address="Chaharbagh St",
+            is_active=True,
+        )
+
+        # Room types for hotel1 (min price: 100,000, max: 300,000)
+        RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Single",
+            capacity=1,
+            price_per_night=100000,
+            quantity=5,
+        )
+        RoomType.objects.create(
+            hotel=self.hotel1,
+            title="Double",
+            capacity=2,
+            price_per_night=300000,
+            quantity=3,
+        )
+
+        # Room types for hotel3 (min price: 500,000)
+        RoomType.objects.create(
+            hotel=self.hotel3,
+            title="Suite",
+            capacity=4,
+            price_per_night=500000,
+            quantity=2,
+        )
+        # hotel2 has no room types
+
+    def test_active_filter(self):
+        active_ids = list(Hotel.objects.active().values_list("id", flat=True))
+        self.assertIn(self.hotel1.id, active_ids)
+        self.assertIn(self.hotel3.id, active_ids)
+        self.assertNotIn(self.hotel2.id, active_ids)
+
+    def test_in_city_filter(self):
+        # Case insensitive and stripped
+        tehran_hotels = list(Hotel.objects.in_city("tehran").values_list("id", flat=True))
+        self.assertCountEqual(tehran_hotels, [self.hotel1.id, self.hotel2.id])
+
+        tehran_padded = list(Hotel.objects.in_city("  TEHRAN  ").values_list("id", flat=True))
+        self.assertCountEqual(tehran_padded, [self.hotel1.id, self.hotel2.id])
+
+        isfahan_hotels = list(Hotel.objects.in_city("Isfahan").values_list("id", flat=True))
+        self.assertEqual(isfahan_hotels, [self.hotel3.id])
+
+        # Empty/None city returns all
+        self.assertEqual(Hotel.objects.in_city("").count(), 3)
+        self.assertEqual(Hotel.objects.in_city(None).count(), 3)
+
+    def test_owned_by_filter(self):
+        m1_hotels = list(Hotel.objects.owned_by(self.manager1).values_list("id", flat=True))
+        m2_hotels = list(Hotel.objects.owned_by(self.manager2).values_list("id", flat=True))
+        self.assertCountEqual(m1_hotels, [self.hotel1.id, self.hotel2.id])
+        self.assertEqual(m2_hotels, [self.hotel3.id])
+
+    def test_with_min_price_annotation(self):
+        hotels = {h.id: h.min_price for h in Hotel.objects.with_min_price()}
+        self.assertEqual(hotels[self.hotel1.id], 100000)
+        self.assertIsNone(hotels[self.hotel2.id])
+        self.assertEqual(hotels[self.hotel3.id], 500000)
+
+    def test_priced_between_filter(self):
+        # Between 50,000 and 150,000: only hotel1 (has room at 100,000)
+        qs1 = list(Hotel.objects.priced_between(50000, 150000).values_list("id", flat=True))
+        self.assertEqual(qs1, [self.hotel1.id])
+
+        # Between 400,000 and 600,000: only hotel3 (has room at 500,000)
+        qs2 = list(Hotel.objects.priced_between(400000, 600000).values_list("id", flat=True))
+        self.assertEqual(qs2, [self.hotel3.id])
+
+        # Between 100,000 and 500,000: both hotel1 and hotel3
+        qs3 = list(Hotel.objects.priced_between(100000, 500000).values_list("id", flat=True))
+        self.assertCountEqual(qs3, [self.hotel1.id, self.hotel3.id])
+
+        # Higher than available
+        qs4 = list(Hotel.objects.priced_between(min_price=600000).values_list("id", flat=True))
+        self.assertEqual(qs4, [])
+
+        # None bounds returns all
+        self.assertEqual(Hotel.objects.priced_between().count(), 3)
+
+    def test_chained_queryset_methods(self):
+        # Chaining: active + in_city + with_min_price + priced_between
+        results = Hotel.objects.active().in_city("tehran").with_min_price().priced_between(50000, 200000)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, self.hotel1.id)
+        self.assertEqual(results[0].min_price, 100000)
+
+
+class GuestViewsManagerRefactorTests(TestCase):
+    """Verify that guest hotel views correctly use Hotel and RoomType managers (P3-04)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="p304_mgr",
+            email="p304_mgr@example.com",
+            password="passWORD123!",
+            role=User.Role.MANAGER,
+        )
+        self.guest = User.objects.create_user(
+            username="p304_guest",
+            email="p304_guest@example.com",
+            password="passWORD123!",
+            role=User.Role.GUEST,
+        )
+        self.hotel = Hotel.objects.create(
+            owner=self.manager,
+            name="Refactored Boutique Hotel",
+            city="Isfahan",
+            address="Chaharbagh Abbasi",
+            star_rating=5,
+            is_active=True,
+        )
+        self.rt_deluxe = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Deluxe Suite",
+            capacity=2,
+            price_per_night=2_500_000,
+            quantity=3,
+        )
+        self.rt_standard = RoomType.objects.create(
+            hotel=self.hotel,
+            title="Standard Room",
+            capacity=2,
+            price_per_night=1_500_000,
+            quantity=2,
+        )
+
+    def test_hotels_list_annotated_min_price_and_availability(self):
+        """hotels_list_view uses with_min_price and with_availability via Prefetch."""
+        today = timezone.localdate()
+        d_in = (today + timedelta(days=5)).strftime("%Y-%m-%d")
+        d_out = (today + timedelta(days=8)).strftime("%Y-%m-%d")
+
+        # Book 2 of 2 Standard rooms in range
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt_standard,
+            check_in=today + timedelta(days=5),
+            check_out=today + timedelta(days=8),
+            rooms_count=2,
+            guests_count=2,
+            price_per_night_snapshot=1_500_000,
+            subtotal=9_000_000,
+            total_price=9_000_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        url = reverse("hotels:hotels_list")
+        res = self.client.get(url, {"city": "Isfahan", "check_in": d_in, "check_out": d_out})
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("data")
+        self.assertEqual(len(data), 1)
+        hotel_data = data[0]
+        self.assertEqual(hotel_data["id"], self.hotel.id)
+        # min_price comes from with_min_price()
+        self.assertEqual(hotel_data["min_price"], 1_500_000)
+        self.assertTrue(hotel_data["available"])
+
+    def test_hotel_rooms_view_uses_roomtype_with_availability(self):
+        """hotel_rooms_view directly returns room availability annotated by RoomTypeQuerySet."""
+        today = timezone.localdate()
+        d_in = (today + timedelta(days=2)).strftime("%Y-%m-%d")
+        d_out = (today + timedelta(days=5)).strftime("%Y-%m-%d")
+
+        # Book 1 Deluxe room
+        Booking.objects.create(
+            guest=self.guest,
+            room_type=self.rt_deluxe,
+            check_in=today + timedelta(days=2),
+            check_out=today + timedelta(days=5),
+            rooms_count=1,
+            guests_count=2,
+            price_per_night_snapshot=2_500_000,
+            subtotal=7_500_000,
+            total_price=7_500_000,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        url = reverse("hotels:hotel_rooms", kwargs={"hotel_id": self.hotel.id})
+        res = self.client.get(url, {"check_in": d_in, "check_out": d_out, "guests": 2})
+        self.assertEqual(res.status_code, 200)
+        rooms = res.json().get("data")
+        deluxe = next(r for r in rooms if r["id"] == self.rt_deluxe.id)
+        standard = next(r for r in rooms if r["id"] == self.rt_standard.id)
+
+        # Deluxe: quantity 3 - 1 reserved = 2 available
+        self.assertEqual(deluxe["available_count"], 2)
+        self.assertTrue(deluxe["available"])
+
+        # Standard: quantity 2 - 0 reserved = 2 available
+        self.assertEqual(standard["available_count"], 2)
+        self.assertTrue(standard["available"])
+
+
+
+class HotelLoggingCoverageTests(TestCase):
+    """Tests verifying logging coverage in hotels views (P3-09)."""
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="hotel_log_mgr",
+            email="hotel_log_mgr@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+        )
+        self.other_manager = User.objects.create_user(
+            username="other_mgr",
+            email="other_mgr@example.com",
+            password="StrongPassword123!",
+            role=User.Role.MANAGER,
+        )
+        self.hotel = Hotel.objects.create(
+            name="Log Test Hotel",
+            city="Shiraz",
+            address="Zand St",
+            owner=self.manager,
+        )
+
+    def test_manager_hotel_crud_logging(self):
+        self.client.force_login(self.manager)
+
+        # 1. Create hotel
+        payload = {
+            "name": "Audit Grand Hotel",
+            "city": "Tehran",
+            "address": "Valiasr St",
+            "description": "Luxury audit hotel",
+            "star_rating": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.post(
+                reverse("hotels:manager_hotels_list_create"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            hotel_id = res.json()["data"]["id"]
+            self.assertTrue(any("Manager created hotel" in m and "Audit Grand Hotel" in m for m in cm.output))
+
+        # 2. Update hotel
+        update_payload = {
+            "name": "Audit Grand Hotel Renovated",
+            "city": "Tehran",
+            "address": "Valiasr St",
+            "description": "Luxury audit hotel updated",
+            "star_rating": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.put(
+                reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": hotel_id}),
+                data=json.dumps(update_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager updated hotel" in m and "Audit Grand Hotel Renovated" in m for m in cm.output))
+
+        # 3. Delete hotel
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.delete(reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": hotel_id}))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager deleted hotel" in m and str(hotel_id) in m for m in cm.output))
+
+    def test_manager_hotel_unauthorized_access_logging(self):
+        self.client.force_login(self.other_manager)
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = self.client.get(reverse("hotels:manager_hotel_detail", kwargs={"hotel_id": self.hotel.id}))
+            self.assertEqual(res.status_code, 404)
+            self.assertTrue(any("Manager hotel access denied or not found" in m and str(self.hotel.id) in m for m in cm.output))
+
+    def test_manager_room_type_crud_logging(self):
+        self.client.force_login(self.manager)
+        payload = {
+            "title": "Audit Suite",
+            "capacity": 2,
+            "price_per_night": 2000000,
+            "quantity": 5,
+        }
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.post(
+                reverse("hotels:manager_room_types_list_create", kwargs={"hotel_id": self.hotel.id}),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            rt_id = res.json()["data"]["id"]
+            self.assertTrue(any("Manager created room type" in m and "Audit Suite" in m for m in cm.output))
+
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.delete(reverse("hotels:manager_room_type_detail", kwargs={"room_type_id": rt_id}))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("Manager deleted room type" in m and str(rt_id) in m for m in cm.output))
+
+    def test_public_views_logging(self):
+        # 1. Validation failure on invalid search
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.get(reverse("hotels:hotels_list"), {"check_in": "2020-01-01", "check_out": "2020-01-05"})
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Hotel search validation failed" in m for m in cm.output))
+
+        # 2. Not found hotel
+        with self.assertLogs("apps.hotels.views", level="INFO") as cm:
+            res = self.client.get(reverse("hotels:hotel_detail", kwargs={"hotel_id": 999999}))
+            self.assertEqual(res.status_code, 404)
+            self.assertTrue(any("Hotel not found: hotel_id=999999" in m for m in cm.output))

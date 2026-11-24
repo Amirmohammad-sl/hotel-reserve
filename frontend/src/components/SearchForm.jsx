@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getCitiesApi } from '../api/hotels'
+import { getCookie, setCookie } from '../api/client'
 
 export default function SearchForm({
   initialValues = {},
@@ -12,7 +13,11 @@ export default function SearchForm({
   const [cities, setCities] = useState([])
   const [loadingCities, setLoadingCities] = useState(true)
 
-  const [city, setCity] = useState(initialValues.city || '')
+  const [city, setCity] = useState(
+    initialValues.city !== undefined && initialValues.city !== ''
+      ? initialValues.city
+      : (getCookie('last_city') || '')
+  )
   const [checkIn, setCheckIn] = useState(initialValues.check_in || '')
   const [checkOut, setCheckOut] = useState(initialValues.check_out || '')
   const [guests, setGuests] = useState(initialValues.guests || 1)
@@ -75,6 +80,10 @@ export default function SearchForm({
       check_in: checkIn,
       check_out: checkOut,
       guests: Number(guests) > 0 ? Number(guests) : 1,
+    }
+
+    if (searchParams.city) {
+      setCookie('last_city', searchParams.city)
     }
 
     if (onSearch) {

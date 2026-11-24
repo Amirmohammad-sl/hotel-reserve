@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.contrib.sessions.models import Session
 import json
 from django.contrib.admin.sites import site
 from django.db import IntegrityError
@@ -62,6 +64,30 @@ class UserModelTests(TestCase):
         self.assertTrue(admin_user.is_staff)
         self.assertEqual(admin_user.role, User.Role.MANAGER)
         self.assertTrue(admin_user.is_manager)
+
+    def test_user_managers_and_guests_querysets(self):
+        m1 = User.objects.create_user(username='m1', email='m1@ex.com', password='p', role=User.Role.MANAGER)
+        m2 = User.objects.create_user(username='m2', email='m2@ex.com', password='p', role=User.Role.MANAGER)
+        g1 = User.objects.create_user(username='g1', email='g1@ex.com', password='p')
+        g2 = User.objects.create_user(username='g2', email='g2@ex.com', password='p')
+
+        managers = list(User.objects.managers().values_list('id', flat=True))
+        guests = list(User.objects.guests().values_list('id', flat=True))
+
+        self.assertCountEqual(managers, [m1.id, m2.id])
+        self.assertCountEqual(guests, [g1.id, g2.id])
+        self.assertEqual(list(User.objects.filter(is_active=True).managers().values_list('id', flat=True)), managers)
+
+    def test_create_user_role_validation(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_user(username='no_email', email='', password='p')
+
+        with self.assertRaises(ValueError):
+            User.objects.create_user(username='bad_role', email='bad@ex.com', password='p', role='alien')
+
+    def test_create_superuser_role_validation(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(username='bad_admin', email='badadmin@ex.com', password='p', role=User.Role.GUEST)
 
 
 class UserAdminTests(TestCase):
@@ -429,18 +455,13 @@ class AuthViewsTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse("accounts:me"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "data": {
-                    "id": self.user.id,
-                    "username": "existingguest",
-                    "email": "existing@example.com",
-                    "role": "guest",
-                    "email_verified": False,
-                }
-            },
-        )
+        res_data = response.json()["data"]
+        self.assertEqual(res_data["id"], self.user.id)
+        self.assertEqual(res_data["username"], "existingguest")
+        self.assertEqual(res_data["email"], "existing@example.com")
+        self.assertEqual(res_data["role"], "guest")
+        self.assertEqual(res_data["email_verified"], False)
+        self.assertIn("last_login", res_data)
 
     def test_logout_view_unauthenticated_returns_401(self):
         response = self.client.post(reverse("accounts:logout"))
@@ -513,3 +534,178 @@ class AuthViewsTests(TestCase):
         # 7. /me/ returns null
         after_logout_me = self.client.get(reverse("accounts:me"))
         self.assertEqual(after_logout_me.json(), {"data": None})
+
+
+
+class SessionManagementTests(TestCase):
+    """Tests for course-required session management, cookie flags, and lifecycle (P3-06)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="session_tester",
+            email="session@example.com",
+            password="SecurePassword123!",
+        )
+
+    def test_session_engine_is_database_backed(self):
+        self.assertEqual(settings.SESSION_ENGINE, "django.contrib.sessions.backends.db")
+        self.assertTrue(settings.SESSION_COOKIE_HTTPONLY)
+        self.assertEqual(settings.SESSION_COOKIE_SAMESITE, "Lax")
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 1209600)
+
+    def test_login_stores_last_login_in_session_and_me_returns_it(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        session_last_login = self.client.session.get("last_login")
+        self.assertIsNotNone(session_last_login)
+        self.assertEqual(response.json()["data"]["last_login"], session_last_login)
+
+        # GET /api/auth/me/ returns session last_login
+        me_res = self.client.get(reverse("accounts:me"))
+        self.assertEqual(me_res.status_code, 200)
+        self.assertEqual(me_res.json()["data"]["last_login"], session_last_login)
+
+    def test_logout_flushes_session_from_database(self):
+        # 1. Login to create database session
+        login_res = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        session_key = self.client.session.session_key
+        self.assertIsNotNone(session_key)
+        self.assertTrue(Session.objects.filter(session_key=session_key).exists())
+
+        # 2. Logout flushes session
+        logout_res = self.client.post(reverse("accounts:logout"))
+        self.assertEqual(logout_res.status_code, 200)
+
+        # 3. Session key no longer exists in DB
+        self.assertFalse(Session.objects.filter(session_key=session_key).exists())
+
+        # 4. /me/ returns null
+        me_res = self.client.get(reverse("accounts:me"))
+        self.assertEqual(me_res.json(), {"data": None})
+
+    def test_cookie_flags_in_response(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
+        cookie = response.cookies[settings.SESSION_COOKIE_NAME]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Lax")
+        self.assertEqual(cookie["max-age"], 1209600)
+
+    def test_remember_me_false_session_cookie(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            data=json.dumps({
+                "username_or_email": "session_tester",
+                "password": "SecurePassword123!",
+                "remember_me": False,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(settings.SESSION_COOKIE_NAME, response.cookies)
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+
+
+class AuthLoggingCoverageTests(TestCase):
+    """Tests verifying logging coverage in accounts views (P3-09)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="logging_user",
+            email="logging_user@example.com",
+            password="StrongPassword123!",
+            role=User.Role.GUEST,
+        )
+
+    def test_register_success_logging(self):
+        payload = {
+            "username": "new_audit_user",
+            "email": "new_audit@example.com",
+            "password": "StrongPassword123!",
+            "password2": "StrongPassword123!",
+            "role": "guest",
+        }
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(
+                reverse("accounts:register"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+            self.assertTrue(any("User registered successfully" in m and "new_audit_user" in m for m in cm.output))
+
+    def test_register_validation_failure_logging(self):
+        payload = {
+            "username": "bad",
+            "email": "not-an-email",
+            "password": "123",
+            "password2": "456",
+        }
+        with self.assertLogs("apps.accounts.views", level="WARNING") as cm:
+            res = self.client.post(
+                reverse("accounts:register"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Registration validation failed" in m for m in cm.output))
+
+    def test_login_success_and_logout_logging(self):
+        login_payload = {
+            "username_or_email": "logging_user",
+            "password": "StrongPassword123!",
+            "remember_me": True,
+        }
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(
+                reverse("accounts:login"),
+                data=json.dumps(login_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("User logged in successfully" in m and "logging_user" in m for m in cm.output))
+
+        with self.assertLogs("apps.security", level="INFO") as cm:
+            res = self.client.post(reverse("accounts:logout"))
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(any("User logged out: user_id=" in m and "logging_user" in m for m in cm.output))
+
+    def test_login_failure_logging(self):
+        bad_payload = {
+            "username_or_email": "logging_user",
+            "password": "WrongPassword!",
+        }
+        with self.assertLogs("apps.security", level="WARNING") as cm:
+            res = self.client.post(
+                reverse("accounts:login"),
+                data=json.dumps(bad_payload),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertTrue(any("Login failed for identifier=logging_user" in m for m in cm.output))
